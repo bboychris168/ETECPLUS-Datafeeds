@@ -12,7 +12,8 @@ suppliers = [
         "item_code_col": "Manufacturer ID",
         "price_col": "Price",
         "rrp_col": "RRP",  # Column for RRP Price
-        "description_col": "Description"  # Column for Item Description
+        "description_col": "Description",  # Column for Item Description
+        "image_url_col": "Image"  # Column for Image URL
     },
     {
         "name": "Compuworld",
@@ -20,7 +21,8 @@ suppliers = [
         "item_code_col": "Manufacture Code",
         "price_col": "ExTax",
         "rrp_col": "RRP",  # Column for RRP Price
-        "description_col": "Description"  # Column for Item Description
+        "description_col": "Description",  # Column for Item Description
+        "image_url_col": "Image"  # Column for Image URL
     },
     {
         "name": "Leaders",
@@ -28,7 +30,8 @@ suppliers = [
         "item_code_col": "MANUFACTURER SKU",
         "price_col": "DBP",
         "rrp_col": "RRP",  # Column for RRP Price
-        "description_col": "Description"  # Column for Item Description
+        "description_col": "Description",  # Column for Item Description
+        "image_url_col": "IMAGE"  # Column for Image URL
     }
     # Add more suppliers here as needed
 ]
@@ -37,7 +40,7 @@ suppliers = [
 uploaded_files = st.file_uploader("Upload your CSV files", type="csv", accept_multiple_files=True)
 
 if uploaded_files:
-    # Initialize a dictionary to store item codes, their cheapest prices, supplier, RRP, and description
+    # Initialize a dictionary to store item codes, their cheapest prices, supplier, RRP, description, and image URL
     item_data = {}
 
     # Process each uploaded file
@@ -70,6 +73,7 @@ if uploaded_files:
         price_col = supplier_config["price_col"]
         rrp_col = supplier_config.get("rrp_col")  # Optional column for RRP Price
         description_col = supplier_config.get("description_col")  # Optional column for Item Description
+        image_url_col = supplier_config.get("image_url_col")  # Optional column for Image URL
         supplier_name = supplier_config["name"]
 
         # Check if the required columns exist
@@ -86,6 +90,7 @@ if uploaded_files:
                 price = row[price_col]
                 rrp = row[rrp_col] if rrp_col in df.columns else 0  # Default to 0 if RRP column is missing
                 description = row[description_col] if description_col in df.columns else ""  # Default to empty string if Description column is missing
+                image_url = row[image_url_col] if image_url_col in df.columns else ""  # Default to empty string if Image URL column is missing
                 
                 # If the item code already exists, compare prices and keep the cheapest one
                 if item_code in item_data:
@@ -94,14 +99,16 @@ if uploaded_files:
                             "Cheapest Price": price,
                             "Supplier": supplier_name,
                             "RRP": rrp,  # Include RRP
-                            "Description": description  # Include Description
+                            "Description": description,  # Include Description
+                            "ImageURL": image_url  # Include Image URL
                         }
                 else:
                     item_data[item_code] = {
                         "Cheapest Price": price,
                         "Supplier": supplier_name,
                         "RRP": rrp,  # Include RRP
-                        "Description": description  # Include Description
+                        "Description": description,  # Include Description
+                        "ImageURL": image_url  # Include Image URL
                     }
         else:
             # Provide detailed error message for missing columns
@@ -114,7 +121,7 @@ if uploaded_files:
 
     # Display the results
     if item_data:
-        st.write("### Item Codes, Cheapest Prices, Suppliers, RRP, and Descriptions")
+        st.write("### Item Codes, Cheapest Prices, Suppliers, RRP, Descriptions, and Image URLs")
         # Convert the dictionary to a DataFrame
         result_df = pd.DataFrame([
             {
@@ -122,7 +129,8 @@ if uploaded_files:
                 "Cheapest Price": data["Cheapest Price"],
                 "Supplier": data["Supplier"],
                 "RRP": data["RRP"],  # Include RRP
-                "Description": data["Description"]  # Include Description
+                "Description": data["Description"],  # Include Description
+                "ImageURL": data["ImageURL"]  # Include Image URL
             }
             for item_code, data in item_data.items()
         ])
@@ -133,7 +141,7 @@ if uploaded_files:
         st.download_button(
             label="Download Results as CSV",
             data=csv,
-            file_name="cheapest_prices_with_rrp_and_description.csv",
+            file_name="cheapest_prices_with_rrp_description_and_images.csv",
             mime="text/csv",
         )
     else:
