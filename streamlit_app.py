@@ -4,6 +4,29 @@ import pandas as pd
 # Title of the app
 st.title("ETEC+ Supplier Datafeeds")
 
+# Define a list of supplier configurations
+suppliers = [
+    {
+        "name": "Auscomp",
+        "file_keyword": "Auscomp",  # Keyword to identify the file
+        "item_code_col": "Manufacturer ID",
+        "price_col": "Price"
+    },
+    {
+        "name": "Compuworld",
+        "file_keyword": "Compuworld",
+        "item_code_col": "Manufacture Code",
+        "price_col": "ExTax"
+    },
+    {
+        "name": "Leaders",
+        "file_keyword": "Leaders",
+        "item_code_col": "MANUFACTURER SKU",
+        "price_col": "DBP"
+    }
+    # Add more suppliers here as needed
+]
+
 # Upload multiple CSV files
 uploaded_files = st.file_uploader("Upload your CSV files", type="csv", accept_multiple_files=True)
 
@@ -23,25 +46,23 @@ if uploaded_files:
         df = pd.read_csv(uploaded_file)
         
         # Debugging: Print file name and columns
-        #st.write(f"Processing file: {uploaded_file.name}")
-        #st.write(f"Columns in file: {df.columns.tolist()}")
+        st.write(f"Processing file: {uploaded_file.name}")
+        st.write(f"Columns in file: {df.columns.tolist()}")
 
-        # Determine the column names based on the file name
-        if "Auscomp" in uploaded_file.name:
-            item_code_col = "Manufacturer ID"
-            price_col = "Price"
-            supplier_name = "Auscomp"
-        elif "Compuworld" in uploaded_file.name:
-            item_code_col = "Manufacture Code"
-            price_col = "ExTax"  # Ensure this matches the exact column name in the file
-            supplier_name = "Compuworld"
-        elif "Leaders" in uploaded_file.name:
-            item_code_col = "MANUFACTURER SKU"
-            price_col = "DBP"
-            supplier_name = "Leaders"
+        # Determine the supplier configuration based on the file name
+        supplier_config = None
+        for supplier in suppliers:
+            if supplier["file_keyword"] in uploaded_file.name:
+                supplier_config = supplier
+                break
         else:
             st.error(f"File {uploaded_file.name} does not match any expected file format.")
             continue
+
+        # Extract column names and supplier name from the configuration
+        item_code_col = supplier_config["item_code_col"]
+        price_col = supplier_config["price_col"]
+        supplier_name = supplier_config["name"]
 
         # Check if the required columns exist
         if item_code_col in df.columns and price_col in df.columns:
