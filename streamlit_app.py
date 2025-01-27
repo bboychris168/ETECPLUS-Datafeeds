@@ -13,6 +13,12 @@ if uploaded_files:
 
     # Process each uploaded file
     for uploaded_file in uploaded_files:
+        # Check file size (Streamlit's default limit is 200MB)
+        file_size = uploaded_file.size / (1024 * 1024)  # Convert to MB
+        if file_size > 200:
+            st.error(f"File {uploaded_file.name} is too large ({file_size:.2f} MB). Please upload files smaller than 200MB.")
+            continue
+
         # Read the CSV file into a DataFrame
         df = pd.read_csv(uploaded_file)
         
@@ -63,7 +69,13 @@ if uploaded_files:
                         "Supplier": supplier_name
                     }
         else:
-            st.error(f"File {uploaded_file.name} does not contain the required columns.")
+            # Provide detailed error message for missing columns
+            missing_columns = []
+            if item_code_col not in df.columns:
+                missing_columns.append(item_code_col)
+            if price_col not in df.columns:
+                missing_columns.append(price_col)
+            st.error(f"File {uploaded_file.name} is missing the following required columns: {', '.join(missing_columns)}.")
 
     # Display the results
     if item_data:
