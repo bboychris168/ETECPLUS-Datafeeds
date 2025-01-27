@@ -13,7 +13,7 @@ suppliers = [
         "price_col": "Price",
         "rrp_col": "RRP",  # Column for RRP Price
         "description_col": "Description",  # Column for Item Description
-        "image_url_col": "ImageURL"  # Column for Image URL
+        "image_url_col": "Image"  # Column for Image URL
     },
     {
         "name": "Compuworld",
