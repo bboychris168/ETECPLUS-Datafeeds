@@ -22,7 +22,7 @@ suppliers = [
         "price_col": "ExTax",
         "rrp_col": "RRP",  # Column for RRP Price
         "description_col": "Description",  # Column for Item Description
-        "image_url_col": "ImageURL"  # Column for Image URL
+        "image_url_col": "Image"  # Column for Image URL
     },
     {
         "name": "Leaders",
@@ -31,7 +31,7 @@ suppliers = [
         "price_col": "DBP",
         "rrp_col": "RRP",  # Column for RRP Price
         "description_col": "Description",  # Column for Item Description
-        "image_url_col": "ImageURL"  # Column for Image URL
+        "image_url_col": "IMAGE"  # Column for Image URL
     }
     # Add more suppliers here as needed
 ]
