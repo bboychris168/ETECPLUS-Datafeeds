@@ -13,7 +13,7 @@ suppliers = [
         "price_col": "Price",
         "rrp_col": "RRP",  # Column for RRP Price
         "description_col": "Description",  # Column for Item Description
-        "image_url_col": "Image"  # Column for Image URL
+        "image_url_col": "ImageURL"  # Column for Image URL
     },
     {
         "name": "Compuworld",
@@ -22,7 +22,7 @@ suppliers = [
         "price_col": "ExTax",
         "rrp_col": "RRP",  # Column for RRP Price
         "description_col": "Description",  # Column for Item Description
-        "image_url_col": "Image"  # Column for Image URL
+        "image_url_col": "ImageURL"  # Column for Image URL
     },
     {
         "name": "Leaders",
@@ -31,7 +31,7 @@ suppliers = [
         "price_col": "DBP",
         "rrp_col": "RRP",  # Column for RRP Price
         "description_col": "Description",  # Column for Item Description
-        "image_url_col": "IMAGE"  # Column for Image URL
+        "image_url_col": "ImageURL"  # Column for Image URL
     }
     # Add more suppliers here as needed
 ]
@@ -55,8 +55,8 @@ if uploaded_files:
         df = pd.read_csv(uploaded_file)
         
         # Debugging: Print file name and columns
-        #st.write(f"Processing file: {uploaded_file.name}")
-        #st.write(f"Columns in file: {df.columns.tolist()}")
+        st.write(f"Processing file: {uploaded_file.name}")
+        st.write(f"Columns in file: {df.columns.tolist()}")
 
         # Determine the supplier configuration based on the file name
         supplier_config = None
@@ -121,7 +121,7 @@ if uploaded_files:
 
     # Display the results
     if item_data:
-        #st.write("### Item Codes, Cheapest Prices, Suppliers, RRP, Descriptions, and Image URLs")
+        st.write("### Item Codes, Cheapest Prices, Suppliers, RRP, Descriptions, and Image URLs")
         # Convert the dictionary to a DataFrame
         result_df = pd.DataFrame([
             {
@@ -134,10 +134,20 @@ if uploaded_files:
             }
             for item_code, data in item_data.items()
         ])
-        st.dataframe(result_df)
 
-        # Export the results as a CSV file
-        csv = result_df.to_csv(index=False).encode('utf-8')
+        # Add a column with HTML image tags for display
+        result_df["Image"] = result_df["ImageURL"].apply(
+            lambda url: f'<img src="{url}" width="100">' if url else ""
+        )
+
+        # Display the DataFrame with images using HTML
+        st.write(
+            result_df[["Item Code", "Cheapest Price", "Supplier", "RRP", "Description", "Image"]].to_html(escape=False),
+            unsafe_allow_html=True
+        )
+
+        # Export the results as a CSV file (without the HTML image column)
+        csv = result_df.drop(columns=["Image"]).to_csv(index=False).encode('utf-8')
         st.download_button(
             label="Download Results as CSV",
             data=csv,
