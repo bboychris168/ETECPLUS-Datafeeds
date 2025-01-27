@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 
 # Title of the app
-st.title("CSV File Comparator for Cheapest Prices")
+st.title("ETEC+ Supplier Datafeeds")
 
 # Upload multiple CSV files
 uploaded_files = st.file_uploader("Upload your CSV files", type="csv", accept_multiple_files=True)
