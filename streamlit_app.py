@@ -121,7 +121,7 @@ if uploaded_files:
 
     # Display the results
     if item_data:
-        st.write("### Item Codes, Cheapest Prices, Suppliers, RRP, Descriptions, and Image URLs")
+        #st.write("### Item Codes, Cheapest Prices, Suppliers, RRP, Descriptions, and Image URLs")
         # Convert the dictionary to a DataFrame
         result_df = pd.DataFrame([
             {
