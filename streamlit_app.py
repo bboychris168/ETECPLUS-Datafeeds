@@ -30,7 +30,7 @@ if uploaded_files:
             price_col = "ExTax"  # Ensure this matches the exact column name in the file
             supplier_name = "Compuworld"
         elif "Leaders" in uploaded_file.name:
-            item_code_col = "STOCK CODE"
+            item_code_col = "MANUFACTURER SKU"
             price_col = "DBP"
             supplier_name = "Leaders"
         else:
