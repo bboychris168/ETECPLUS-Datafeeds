@@ -55,8 +55,8 @@ if uploaded_files:
         df = pd.read_csv(uploaded_file)
         
         # Debugging: Print file name and columns
-        #st.write(f"Processing file: {uploaded_file.name}")
-        #st.write(f"Columns in file: {df.columns.tolist()}")
+        st.write(f"Processing file: {uploaded_file.name}")
+        st.write(f"Columns in file: {df.columns.tolist()}")
 
         # Determine the supplier configuration based on the file name
         supplier_config = None
