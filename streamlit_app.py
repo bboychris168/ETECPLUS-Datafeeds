@@ -1,6 +1,93 @@
 import streamlit as st
+import pandas as pd
 
-st.title("🎈 My new app")
-st.write(
-    "Let's start building! For help and inspiration, head over to [docs.streamlit.io](https://docs.streamlit.io/)."
-)
+# Title of the app
+st.title("CSV File Comparator for Cheapest Prices")
+
+# Upload multiple CSV files
+uploaded_files = st.file_uploader("Upload your CSV files", type="csv", accept_multiple_files=True)
+
+if uploaded_files:
+    # Initialize a dictionary to store item codes, their cheapest prices, and the supplier
+    item_data = {}
+
+    # Process each uploaded file
+    for uploaded_file in uploaded_files:
+        # Read the CSV file into a DataFrame
+        df = pd.read_csv(uploaded_file)
+        
+        # Debugging: Print file name and columns
+        st.write(f"Processing file: {uploaded_file.name}")
+        st.write(f"Columns in file: {df.columns.tolist()}")
+
+        # Determine the column names based on the file name
+        if "Auscomp" in uploaded_file.name:
+            item_code_col = "Manufacturer ID"
+            price_col = "Price"
+            supplier_name = "Auscomp"
+        elif "Compuworld" in uploaded_file.name:
+            item_code_col = "Manufacture Code"
+            price_col = "ExTax"  # Ensure this matches the exact column name in the file
+            supplier_name = "Compuworld"
+        elif "Leaders" in uploaded_file.name:
+            item_code_col = "Stock code"
+            price_col = "DBP"
+            supplier_name = "Leaders"
+        else:
+            st.error(f"File {uploaded_file.name} does not match any expected file format.")
+            continue
+
+        # Check if the required columns exist
+        if item_code_col in df.columns and price_col in df.columns:
+            # Convert the price column to numeric (float), coercing errors to NaN
+            df[price_col] = pd.to_numeric(df[price_col], errors='coerce')
+            
+            # Drop rows with NaN values in the price column
+            df = df.dropna(subset=[price_col])
+            
+            # Iterate through rows and update item_data
+            for index, row in df.iterrows():
+                item_code = row[item_code_col]
+                price = row[price_col]
+                
+                # If the item code already exists, compare prices and keep the cheapest one
+                if item_code in item_data:
+                    if price < item_data[item_code]["Cheapest Price"]:
+                        item_data[item_code] = {
+                            "Cheapest Price": price,
+                            "Supplier": supplier_name
+                        }
+                else:
+                    item_data[item_code] = {
+                        "Cheapest Price": price,
+                        "Supplier": supplier_name
+                    }
+        else:
+            st.error(f"File {uploaded_file.name} does not contain the required columns.")
+
+    # Display the results
+    if item_data:
+        st.write("### Item Codes, Cheapest Prices, and Suppliers")
+        # Convert the dictionary to a DataFrame
+        result_df = pd.DataFrame([
+            {
+                "Item Code": item_code,
+                "Cheapest Price": data["Cheapest Price"],
+                "Supplier": data["Supplier"]
+            }
+            for item_code, data in item_data.items()
+        ])
+        st.dataframe(result_df)
+
+        # Export the results as a CSV file
+        csv = result_df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="Download Results as CSV",
+            data=csv,
+            file_name="cheapest_prices.csv",
+            mime="text/csv",
+        )
+    else:
+        st.warning("No valid data found in the uploaded files.")
+else:
+    st.info("Please upload CSV files to get started.")
