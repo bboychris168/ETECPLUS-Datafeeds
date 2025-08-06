@@ -66,26 +66,6 @@ suppliers = [
         "image_url_col": supplier_mappings[supplier].get("Image Src", "")
     } for supplier in supplier_mappings
 ]
-    {
-        "name": "Compuworld",
-        "file_keyword": "Compuworld",
-        "item_code_col": "Manufacture Code",
-        "price_col": "ExTax",
-        "rrp_col": "RRP",  # Column for RRP Price
-        "description_col": "Description",  # Column for Item Description
-        "image_url_col": "Image"  # Column for Image URL
-    },
-    {
-        "name": "Leaders",
-        "file_keyword": "Leaders",
-        "item_code_col": "MANUFACTURER SKU",
-        "price_col": "DBP",
-        "rrp_col": "RRP",  # Column for RRP Price
-        "description_col": "Description",  # Column for Item Description
-        "image_url_col": "IMAGE"  # Column for Image URL
-    }
-    # Add more suppliers here as needed
-]
 
 # Upload multiple CSV files
 uploaded_files = st.file_uploader("Upload your CSV files", type="csv", accept_multiple_files=True)
