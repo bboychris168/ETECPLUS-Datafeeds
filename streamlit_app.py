@@ -46,26 +46,26 @@ with st.sidebar.expander("Add New Supplier"):
             st.write("### Map Supplier Columns to Shopify Fields")
             st.write("Select the corresponding supplier column for each Shopify field:")
             
-            # Important Shopify fields to map
-            important_fields = [
-                "Title", "Vendor", "Variant SKU", "Variant Price",
-                "Variant Compare At Price", "Image Src", "Cost per item",
-                "Body (HTML)", "Product Category", "Type", "Tags",
-                "Variant Inventory Qty", "Variant Barcode"
-            ]
+            # Get all fields from Shopify template
+            shopify_fields = shopify_template["template_columns"]
             
             # Create two columns for better layout
             col1, col2 = st.columns(2)
             
+            # Create multiple columns for better layout
+            num_columns = 3
+            cols = st.columns(num_columns)
+            
             # Split fields between columns
-            for i, field in enumerate(important_fields):
-                with col1 if i % 2 == 0 else col2:
+            for i, field in enumerate(shopify_fields):
+                with cols[i % num_columns]:
                     # Add "None" option to available columns
                     column_options = [""] + available_columns
                     mapping[field] = st.selectbox(
-                        f"Shopify {field}",
+                        field,
                         options=column_options,
-                        help=f"Select the column that corresponds to Shopify's {field}"
+                        help=f"Select the column that corresponds to Shopify's {field}",
+                        key=f"select_{field}"
                     )
             
             # Show data preview
