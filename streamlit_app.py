@@ -1,20 +1,71 @@
 import streamlit as st
 import pandas as pd
+import json
+import os
+
+# Create mappings directory if it doesn't exist
+os.makedirs('mappings', exist_ok=True)
 
 # Title of the app
 st.title("ETEC+ Supplier Datafeeds")
 
-# Define a list of supplier configurations
+# Load Shopify template and supplier mappings
+try:
+    with open('mappings/shopify_template.json', 'r') as f:
+        shopify_template = json.load(f)
+    with open('mappings/supplier_mappings.json', 'r') as f:
+        supplier_mappings = json.load(f)
+except FileNotFoundError:
+    st.error("Mapping files not found. Please ensure the mapping files are in the correct location.")
+    st.stop()
+
+# Supplier management section
+st.sidebar.header("Supplier Management")
+
+# Add new supplier
+with st.sidebar.expander("Add New Supplier"):
+    new_supplier_name = st.text_input("Supplier Name")
+    
+    if new_supplier_name:
+        mapping = {}
+        st.write("Map supplier columns to Shopify columns:")
+        
+        # Only show important Shopify fields for mapping
+        important_fields = [
+            "Title", "Vendor", "Variant SKU", "Variant Price",
+            "Variant Compare At Price", "Image Src", "Cost per item"
+        ]
+        
+        for field in important_fields:
+            mapping[field] = st.text_input(f"{field} maps to supplier column:")
+        
+        if st.button("Save Supplier Mapping"):
+            if new_supplier_name not in supplier_mappings:
+                supplier_mappings[new_supplier_name] = mapping
+                with open('mappings/supplier_mappings.json', 'w') as f:
+                    json.dump(supplier_mappings, f, indent=4)
+                st.success(f"Added new supplier: {new_supplier_name}")
+            else:
+                st.error("Supplier already exists!")
+
+# View/Edit existing suppliers
+with st.sidebar.expander("View/Edit Suppliers"):
+    for supplier in supplier_mappings:
+        st.write(f"### {supplier}")
+        st.json(supplier_mappings[supplier])
+
+# Define suppliers list from mappings
 suppliers = [
     {
-        "name": "Auscomp",
-        "file_keyword": "Auscomp",  # Keyword to identify the file
-        "item_code_col": "Manufacturer ID",
-        "price_col": "Price",
-        "rrp_col": "RRP",  # Column for RRP Price
-        "description_col": "Description",  # Column for Item Description
-        "image_url_col": "Image"  # Column for Image URL
-    },
+        "name": supplier,
+        "file_keyword": supplier,
+        "item_code_col": supplier_mappings[supplier].get("Variant SKU", ""),
+        "price_col": supplier_mappings[supplier].get("Cost per item", ""),
+        "rrp_col": supplier_mappings[supplier].get("Variant Compare At Price", ""),
+        "description_col": supplier_mappings[supplier].get("Title", ""),
+        "image_url_col": supplier_mappings[supplier].get("Image Src", "")
+    } for supplier in supplier_mappings
+]
     {
         "name": "Compuworld",
         "file_keyword": "Compuworld",
@@ -121,29 +172,69 @@ if uploaded_files:
 
     # Display the results
     if item_data:
-        #st.write("### Item Codes, Cheapest Prices, Suppliers, RRP, Descriptions, and Image URLs")
-        # Convert the dictionary to a DataFrame
-        result_df = pd.DataFrame([
+        # Convert the data to Shopify format
+        shopify_data = []
+        
+        for item_code, data in item_data.items():
+            supplier_name = data["Supplier"]
+            supplier_mapping = supplier_mappings[supplier_name]
+            
+            shopify_row = {col: "" for col in shopify_template["template_columns"]}
+            
+            # Generate handle from description (if available)
+            handle = data["Description"].lower().replace(" ", "-")[:60] if data["Description"] else item_code
+            shopify_row["Handle"] = handle
+            
+            # Map the data using supplier mapping
+            for shopify_col, supplier_col in supplier_mapping.items():
+                if supplier_col in ["Price", "ExTax", "DBP"]:
+                    shopify_row[shopify_col] = data["Cheapest Price"]
+                elif supplier_col == "RRP":
+                    shopify_row[shopify_col] = data["RRP"]
+                elif supplier_col == "Description":
+                    shopify_row[shopify_col] = data["Description"]
+                elif supplier_col in ["Image", "IMAGE"]:
+                    shopify_row[shopify_col] = data["ImageURL"]
+            
+            # Set default values
+            shopify_row["Variant Inventory Policy"] = "deny"
+            shopify_row["Variant Fulfillment Service"] = "manual"
+            shopify_row["Variant Requires Shipping"] = "true"
+            shopify_row["Variant Taxable"] = "true"
+            shopify_row["Status"] = "active"
+            
+            shopify_data.append(shopify_row)
+        
+        # Convert to DataFrame
+        shopify_df = pd.DataFrame(shopify_data)
+        
+        # Display preview
+        st.write("### Preview of Shopify Format")
+        st.dataframe(shopify_df)
+        
+        # Export the results as a Shopify CSV file
+        csv = shopify_df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="Download Shopify CSV",
+            data=csv,
+            file_name="shopify_import.csv",
+            mime="text/csv",
+        )
+        
+        # Also show the original comparison data
+        st.write("### Original Comparison Data")
+        comparison_df = pd.DataFrame([
             {
                 "Item Code": item_code,
                 "Cheapest Price": data["Cheapest Price"],
                 "Supplier": data["Supplier"],
-                "RRP": data["RRP"],  # Include RRP
-                "Description": data["Description"],  # Include Description
-                "ImageURL": data["ImageURL"]  # Include Image URL
+                "RRP": data["RRP"],
+                "Description": data["Description"],
+                "ImageURL": data["ImageURL"]
             }
             for item_code, data in item_data.items()
         ])
-        st.dataframe(result_df)
-
-        # Export the results as a CSV file
-        csv = result_df.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="Download Results as CSV",
-            data=csv,
-            file_name="cheapest_prices_with_rrp_description_and_images.csv",
-            mime="text/csv",
-        )
+        st.dataframe(comparison_df)
     else:
         st.warning("No valid data found in the uploaded files.")
 else:
