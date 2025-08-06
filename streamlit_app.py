@@ -89,6 +89,26 @@ with st.sidebar.expander("Add New Supplier"):
 
 # View/Edit existing suppliers
 with st.sidebar.expander("View/Edit Suppliers"):
+    # Add a delete supplier section
+    if supplier_mappings:
+        st.subheader("Delete Supplier")
+        supplier_to_delete = st.selectbox(
+            "Select supplier to delete",
+            options=list(supplier_mappings.keys()),
+            key="supplier_delete"
+        )
+        
+        if st.button("Delete Selected Supplier"):
+            if supplier_to_delete in supplier_mappings:
+                del supplier_mappings[supplier_to_delete]
+                # Save updated mappings to file
+                with open('mappings/supplier_mappings.json', 'w') as f:
+                    json.dump(supplier_mappings, f, indent=4)
+                st.success(f"Successfully deleted supplier: {supplier_to_delete}")
+                st.experimental_rerun()  # Refresh the page to show updated list
+    
+    # Display existing suppliers
+    st.subheader("Current Suppliers")
     for supplier in supplier_mappings:
         st.write(f"### {supplier}")
         st.json(supplier_mappings[supplier])
