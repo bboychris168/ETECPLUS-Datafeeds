@@ -25,28 +25,67 @@ st.sidebar.header("Supplier Management")
 # Add new supplier
 with st.sidebar.expander("Add New Supplier"):
     new_supplier_name = st.text_input("Supplier Name")
+    file_keyword = st.text_input("File Keyword (used to match CSV files)", value=new_supplier_name)
     
-    if new_supplier_name:
-        mapping = {}
-        st.write("Map supplier columns to Shopify columns:")
-        
-        # Only show important Shopify fields for mapping
-        important_fields = [
-            "Title", "Vendor", "Variant SKU", "Variant Price",
-            "Variant Compare At Price", "Image Src", "Cost per item"
-        ]
-        
-        for field in important_fields:
-            mapping[field] = st.text_input(f"{field} maps to supplier column:")
-        
-        if st.button("Save Supplier Mapping"):
-            if new_supplier_name not in supplier_mappings:
-                supplier_mappings[new_supplier_name] = mapping
-                with open('mappings/supplier_mappings.json', 'w') as f:
-                    json.dump(supplier_mappings, f, indent=4)
-                st.success(f"Added new supplier: {new_supplier_name}")
+    # File uploader for mapping headers
+    sample_file = st.file_uploader("Upload sample CSV/Excel file to map headers", type=["csv", "xlsx", "xls"])
+    
+    if sample_file and new_supplier_name:
+        try:
+            # Read the file
+            if sample_file.name.endswith('.csv'):
+                df = pd.read_csv(sample_file)
             else:
-                st.error("Supplier already exists!")
+                df = pd.read_excel(sample_file)
+            
+            # Get all columns from the file
+            available_columns = df.columns.tolist()
+            
+            mapping = {}
+            mapping["_file_keyword"] = file_keyword
+            st.write("### Map Supplier Columns to Shopify Fields")
+            st.write("Select the corresponding supplier column for each Shopify field:")
+            
+            # Important Shopify fields to map
+            important_fields = [
+                "Title", "Vendor", "Variant SKU", "Variant Price",
+                "Variant Compare At Price", "Image Src", "Cost per item",
+                "Body (HTML)", "Product Category", "Type", "Tags",
+                "Variant Inventory Qty", "Variant Barcode"
+            ]
+            
+            # Create two columns for better layout
+            col1, col2 = st.columns(2)
+            
+            # Split fields between columns
+            for i, field in enumerate(important_fields):
+                with col1 if i % 2 == 0 else col2:
+                    # Add "None" option to available columns
+                    column_options = [""] + available_columns
+                    mapping[field] = st.selectbox(
+                        f"Shopify {field}",
+                        options=column_options,
+                        help=f"Select the column that corresponds to Shopify's {field}"
+                    )
+            
+            # Show data preview
+            st.write("### Data Preview")
+            st.dataframe(df.head())
+            
+            if st.button("Save Supplier Mapping"):
+                if new_supplier_name not in supplier_mappings:
+                    # Remove empty mappings
+                    mapping = {k: v for k, v in mapping.items() if v != ""}
+                    supplier_mappings[new_supplier_name] = mapping
+                    with open('mappings/supplier_mappings.json', 'w') as f:
+                        json.dump(supplier_mappings, f, indent=4)
+                    st.success(f"Added new supplier: {new_supplier_name}")
+                else:
+                    st.error("Supplier already exists!")
+                    
+        except Exception as e:
+            st.error(f"Error reading file: {str(e)}")
+            st.write("Please make sure the file is a valid CSV or Excel file.")
 
 # View/Edit existing suppliers
 with st.sidebar.expander("View/Edit Suppliers"):
