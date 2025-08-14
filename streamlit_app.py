@@ -3,8 +3,6 @@ import pandas as pd
 import json
 import os
 from datetime import datetime
-import plotly.express as px
-import plotly.graph_objects as go
 
 # Page configuration
 st.set_page_config(
@@ -617,35 +615,30 @@ if st.session_state.processing_complete and 'item_data' in st.session_state:
         st.markdown("### 📈 Data Visualization")
         
         if len(item_data) > 0:
-            # Price distribution by supplier
-            fig1 = px.box(
-                comparison_df,
-                x="Supplier",
-                y="Cheapest Price",
-                title="Price Distribution by Supplier"
-            )
-            fig1.update_layout(height=400)
-            st.plotly_chart(fig1, use_container_width=True)
+            # Simple charts using Streamlit's built-in charting
+            st.markdown("#### Price Distribution by Supplier")
+            supplier_price_data = comparison_df.groupby('Supplier')['Cheapest Price'].agg(['mean', 'min', 'max', 'count']).reset_index()
+            st.dataframe(supplier_price_data, use_container_width=True)
             
-            # Items count by supplier
+            # Bar chart of item counts by supplier
+            st.markdown("#### Items Count by Supplier")
             supplier_counts = comparison_df["Supplier"].value_counts()
-            fig2 = px.pie(
-                values=supplier_counts.values,
-                names=supplier_counts.index,
-                title="Items Distribution by Supplier"
-            )
-            fig2.update_layout(height=400)
-            st.plotly_chart(fig2, use_container_width=True)
+            st.bar_chart(supplier_counts)
             
-            # Price histogram
-            fig3 = px.histogram(
-                comparison_df,
-                x="Cheapest Price",
-                nbins=30,
-                title="Price Distribution"
-            )
-            fig3.update_layout(height=400)
-            st.plotly_chart(fig3, use_container_width=True)
+            # Line chart of price distribution
+            st.markdown("#### Price Distribution")
+            price_bins = pd.cut(comparison_df['Cheapest Price'], bins=20)
+            price_hist = price_bins.value_counts().sort_index()
+            st.line_chart(price_hist)
+            
+            # Additional statistics table
+            st.markdown("#### Detailed Statistics by Supplier")
+            detailed_stats = comparison_df.groupby('Supplier').agg({
+                'Cheapest Price': ['count', 'mean', 'median', 'min', 'max', 'std'],
+                'Has Image': lambda x: (x == 'Yes').sum()
+            }).round(2)
+            detailed_stats.columns = ['Count', 'Mean Price', 'Median Price', 'Min Price', 'Max Price', 'Std Dev', 'Items with Images']
+            st.dataframe(detailed_stats, use_container_width=True)
 
 # Footer
 st.markdown("---")
