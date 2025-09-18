@@ -3,6 +3,147 @@ import pandas as pd
 import json
 import os
 from datetime import datetime
+import re
+
+# Utility functions
+def extract_quantity(qty_value):
+    """Extract quantity as a number from various text formats"""
+    if pd.isna(qty_value) or qty_value == "":
+        return 0
+    
+    qty_str = str(qty_value).strip().upper()
+    
+    # Handle common text indicators
+    if qty_str in ["IN STOCK", "AVAILABLE", "YES", "TRUE"]:
+        return 999
+    if qty_str in ["OUT OF STOCK", "NO", "FALSE", "DISCONTINUED"]:
+        return 0
+    
+    # Remove special characters but keep digits and comparison operators
+    qty_cleaned = re.sub(r'[^\d><+=\-.]', '', qty_str)
+    
+    # Handle greater than cases (>20, 20+, etc.)
+    if '>' in qty_str or '+' in qty_str:
+        numbers = re.findall(r'\d+', qty_cleaned)
+        if numbers:
+            return int(numbers[0]) + 1
+        return 999
+    
+    # Handle less than cases
+    if '<' in qty_str:
+        numbers = re.findall(r'\d+', qty_cleaned)
+        if numbers:
+            return max(0, int(numbers[0]) - 1)
+        return 0
+    
+    # Extract pure numbers
+    numbers = re.findall(r'\d+\.?\d*', qty_cleaned)
+    if numbers:
+        try:
+            return int(float(numbers[0]))
+        except ValueError:
+            return 0
+    
+    return 0
+
+def save_supplier_mapping(supplier_name, mapping, supplier_mappings):
+    """Save supplier mapping to JSON file"""
+    try:
+        # Remove empty mappings
+        mapping = {k: v for k, v in mapping.items() if v != ""}
+        supplier_mappings[supplier_name] = mapping
+        
+        with open('mappings/supplier_mappings.json', 'w') as f:
+            json.dump(supplier_mappings, f, indent=4)
+        return True
+    except Exception as e:
+        st.error(f"Error saving mapping: {str(e)}")
+        return False
+
+def delete_supplier_mapping(supplier_name, supplier_mappings):
+    """Delete supplier mapping from JSON file"""
+    try:
+        if supplier_name in supplier_mappings:
+            del supplier_mappings[supplier_name]
+            with open('mappings/supplier_mappings.json', 'w') as f:
+                json.dump(supplier_mappings, f, indent=4)
+            return True
+        return False
+    except Exception as e:
+        st.error(f"Error deleting mapping: {str(e)}")
+        return False
+
+def process_supplier_file(uploaded_file, supplier_config, item_data):
+    """Process a single supplier file and update item_data"""
+    try:
+        # Read the CSV file
+        df = pd.read_csv(uploaded_file)
+        
+        # Extract column information
+        item_code_col = supplier_config["item_code_col"]
+        price_col = supplier_config["price_col"]
+        rrp_col = supplier_config.get("rrp_col")
+        description_col = supplier_config.get("description_col")
+        image_url_col = supplier_config.get("image_url_col")
+        qty_col = supplier_config.get("qty_col")
+        supplier_name = supplier_config["name"]
+
+        # Validate required columns
+        missing_cols = []
+        if item_code_col not in df.columns:
+            missing_cols.append(item_code_col)
+        if price_col not in df.columns:
+            missing_cols.append(price_col)
+        
+        if missing_cols:
+            return False, f"Missing columns: {', '.join(missing_cols)}", 0, 0
+
+        # Process data
+        df[price_col] = pd.to_numeric(df[price_col], errors='coerce')
+        df = df.dropna(subset=[price_col])
+        
+        rows_processed = 0
+        for index, row in df.iterrows():
+            item_code = str(row[item_code_col]).strip()
+            if not item_code or item_code == 'nan':
+                continue
+                
+            price = row[price_col]
+            rrp = row[rrp_col] if rrp_col and rrp_col in df.columns else 0
+            description = str(row[description_col]) if description_col and description_col in df.columns else ""
+            image_url = str(row[image_url_col]) if image_url_col and image_url_col in df.columns else ""
+            
+            # Add quantity extraction
+            quantity = 0
+            if qty_col and qty_col in df.columns:
+                quantity = extract_quantity(row[qty_col])
+            
+            # Update item data with cheapest price logic
+            if item_code in item_data:
+                if price < item_data[item_code]["Cheapest Price"]:
+                    item_data[item_code] = {
+                        "Cheapest Price": price,
+                        "Supplier": supplier_name,
+                        "RRP": rrp,
+                        "Description": description,
+                        "ImageURL": image_url,
+                        "Quantity": quantity
+                    }
+            else:
+                item_data[item_code] = {
+                    "Cheapest Price": price,
+                    "Supplier": supplier_name,
+                    "RRP": rrp,
+                    "Description": description,
+                    "ImageURL": image_url,
+                    "Quantity": quantity
+                }
+            rows_processed += 1
+        
+        return True, f"Successfully processed", rows_processed, len(df)
+        
+    except Exception as e:
+        return False, str(e), 0, 0
 
 # Page configuration
 st.set_page_config(
@@ -73,24 +214,35 @@ if 'processing_complete' not in st.session_state:
     st.session_state.processing_complete = False
 if 'last_processed_files' not in st.session_state:
     st.session_state.last_processed_files = []
-
-# Main header
-st.markdown('<div class="main-header">📊 ETEC+ Supplier Datafeeds Mapping</div>', unsafe_allow_html=True)
+if 'item_data' not in st.session_state:
+    st.session_state.item_data = {}
 
 # Load Shopify template and supplier mappings
 @st.cache_data
 def load_mappings():
+    """Load Shopify template and supplier mappings from JSON files"""
     try:
         with open('mappings/shopify_template.json', 'r') as f:
             shopify_template = json.load(f)
+    except FileNotFoundError:
+        st.error("⚠️ Shopify template file not found. Please ensure shopify_template.json exists in mappings folder.")
+        st.stop()
+    
+    try:
         with open('mappings/supplier_mappings.json', 'r') as f:
             supplier_mappings = json.load(f)
-        return shopify_template, supplier_mappings
     except FileNotFoundError:
-        st.error("⚠️ Mapping files not found. Please ensure the mapping files are in the correct location.")
-        st.stop()
+        # Create empty supplier mappings if file doesn't exist
+        supplier_mappings = {}
+        with open('mappings/supplier_mappings.json', 'w') as f:
+            json.dump(supplier_mappings, f, indent=4)
+    
+    return shopify_template, supplier_mappings
 
 shopify_template, supplier_mappings = load_mappings()
+
+# Main header
+st.markdown('<div class="main-header">📊 ETEC+ Supplier Datafeeds Mapping</div>', unsafe_allow_html=True)
 
 # Sidebar with improved navigation
 st.sidebar.markdown("## 🔧 Configuration Panel")
@@ -113,166 +265,182 @@ supplier_tab = st.sidebar.radio(
 )
 
 if supplier_tab == "➕ Add New":
-    with st.sidebar.expander("Add New Supplier", expanded=True):
-        new_supplier_name = st.text_input("Supplier Name", placeholder="Enter supplier name...")
-        file_keyword = st.text_input(
-            "File Keyword", 
-            value=new_supplier_name,
-            help="This keyword will be used to match CSV files",
-            placeholder="e.g., 'auscomp', 'leaders'"
-        )
-        
-        # File uploader with better instructions
-        st.markdown("**📁 Upload Sample File**")
-        sample_file = st.file_uploader(
-            "Choose a sample CSV/Excel file to map headers",
-            type=["csv", "xlsx", "xls"],
-            help="Upload a sample file to automatically detect column headers"
-        )
-        
-        if sample_file and new_supplier_name:
-            try:
-                # Show file info
-                file_size = sample_file.size / 1024  # KB
-                st.info(f"📄 File: {sample_file.name} ({file_size:.1f} KB)")
-                
-                # Read the file
-                if sample_file.name.endswith('.csv'):
-                    df = pd.read_csv(sample_file)
-                else:
-                    df = pd.read_excel(sample_file)
-                
-                # Get all columns from the file
-                available_columns = df.columns.tolist()
-                
-                mapping = {}
-                mapping["_file_keyword"] = file_keyword
-                
-                # Main content area for mapping
-                st.markdown("## 🔗 Column Mapping")
-                st.markdown("Map your supplier columns to Shopify fields:")
-                
-                # Progress indicator
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                
-                # Get all fields from Shopify template
-                shopify_fields = shopify_template["template_columns"]
-                
-                # Create tabs for better organization
-                essential_fields = ["Title", "Variant SKU", "Variant Price", "Cost per item", "Variant Compare At Price", "Image Src", "Vendor"]
-                optional_fields = [field for field in shopify_fields if field not in essential_fields]
-                
-                tab1, tab2 = st.tabs(["🎯 Essential Fields", "⚙️ Optional Fields"])
-                
-                with tab1:
-                    st.markdown("### Required for basic functionality")
-                    cols = st.columns(2)
-                    for i, field in enumerate(essential_fields):
-                        with cols[i % 2]:
-                            column_options = [""] + available_columns
-                            mapping[field] = st.selectbox(
-                                f"**{field}**",
-                                options=column_options,
-                                help=f"Select the column that corresponds to Shopify's {field}",
-                                key=f"essential_{field}"
-                            )
-                
-                with tab2:
-                    st.markdown("### Additional Shopify fields")
-                    cols = st.columns(3)
-                    for i, field in enumerate(optional_fields):
-                        with cols[i % 3]:
-                            column_options = [""] + available_columns
-                            mapping[field] = st.selectbox(
-                                field,
-                                options=column_options,
-                                help=f"Select the column that corresponds to Shopify's {field}",
-                                key=f"optional_{field}"
-                            )
-                
-                # Update progress
-                mapped_fields = sum(1 for v in mapping.values() if v != "")
-                progress = mapped_fields / len(shopify_fields)
-                progress_bar.progress(progress)
-                status_text.text(f"Mapped {mapped_fields}/{len(shopify_fields)} fields")
-                
-                # Show data preview in an expandable section
-                with st.expander("📋 Data Preview", expanded=False):
-                    st.dataframe(df.head(), use_container_width=True)
-                    st.caption(f"Showing first 5 rows of {len(df)} total rows")
-                
-                # Save button with validation
-                col1, col2 = st.columns([1, 1])
-                with col1:
-                    if st.button("💾 Save Supplier Mapping", type="primary", use_container_width=True):
-                        if new_supplier_name not in supplier_mappings:
-                            # Validate essential fields
-                            essential_mapped = any(mapping.get(field, "") != "" for field in ["Title", "Variant SKU", "Variant Price"])
-                            if essential_mapped:
-                                # Remove empty mappings
-                                mapping = {k: v for k, v in mapping.items() if v != ""}
-                                supplier_mappings[new_supplier_name] = mapping
-                                with open('mappings/supplier_mappings.json', 'w') as f:
-                                    json.dump(supplier_mappings, f, indent=4)
+    st.sidebar.markdown("**Add New Supplier**")
+    new_supplier_name = st.sidebar.text_input("Supplier Name", placeholder="Enter supplier name...")
+    file_keyword = st.sidebar.text_input(
+        "File Keyword", 
+        value=new_supplier_name,
+        help="This keyword will be used to match CSV files",
+        placeholder="e.g., 'auscomp', 'leaders'"
+    )
+    
+    # File uploader with better instructions
+    st.sidebar.markdown("**📁 Upload Sample File**")
+    sample_file = st.sidebar.file_uploader(
+        "Choose a sample CSV/Excel file to map headers",
+        type=["csv", "xlsx", "xls"],
+        help="Upload a sample file to automatically detect column headers"
+    )
+    
+    if sample_file and new_supplier_name:
+        try:
+            # Show file info
+            file_size = sample_file.size / 1024  # KB
+            st.sidebar.info(f"📄 File: {sample_file.name} ({file_size:.1f} KB)")
+            
+            # Read the file
+            if sample_file.name.endswith('.csv'):
+                df = pd.read_csv(sample_file)
+            else:
+                df = pd.read_excel(sample_file)
+            
+            # Get all columns from the file
+            available_columns = df.columns.tolist()
+            
+            mapping = {}
+            mapping["_file_keyword"] = file_keyword
+            
+            # Main content area for mapping
+            st.markdown("## 🔗 Column Mapping")
+            st.markdown("Map your supplier columns to Shopify fields:")
+            
+            st.info("""
+            📋 **Required Shopify Fields Information:**
+            
+            All fields marked as "Required" are mandatory by Shopify, but will use default values if not mapped:
+            - **Handle**: Auto-generated from Title if not mapped
+            - **Vendor**: Uses supplier name if not mapped  
+            - **Published**: Defaults to "true"
+            - **Option1 Name/Value**: Defaults to "Title"/"Default Title"
+            - **Variant Price**: Must be mapped for pricing
+            - **Variant Inventory Qty**: Uses extracted quantity or 0
+            - **Status**: Defaults to "active"
+            
+            You only need to map the fields that contain actual data from your supplier.
+            """)
+            
+            # Progress indicator
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            # Get all fields from Shopify template
+            shopify_fields = shopify_template["template_columns"]
+            
+            # Create tabs for better organization
+            essential_fields = [
+                "Handle", "Vendor", "Published", "Option1 Name", "Option1 Value", 
+                "Variant Grams", "Variant Inventory Qty", "Variant Inventory Policy", 
+                "Variant Fulfillment Service", "Variant Price", "Variant Requires Shipping", 
+                "Variant Taxable", "Gift Card", "Variant Weight Unit", 
+                "Included / United States", "Included / International", "Status"
+            ]
+            optional_fields = [field for field in shopify_fields if field not in essential_fields]
+            
+            tab1, tab2 = st.tabs(["🎯 Required Fields (Shopify)", "⚙️ Optional Fields"])
+            
+            with tab1:
+                st.markdown("### Required Shopify Fields")
+                st.info("⚠️ These fields are required by Shopify. Default values will be used if left unmapped.")
+                cols = st.columns(2)
+                for i, field in enumerate(essential_fields):
+                    with cols[i % 2]:
+                        column_options = [""] + available_columns
+                        mapping[field] = st.selectbox(
+                            f"**{field}**",
+                            options=column_options,
+                            help=f"Required: {field} - Map to your supplier column or leave blank for default",
+                            key=f"essential_{field}"
+                        )
+            
+            with tab2:
+                st.markdown("### Additional Shopify fields")
+                cols = st.columns(3)
+                for i, field in enumerate(optional_fields):
+                    with cols[i % 3]:
+                        column_options = [""] + available_columns
+                        mapping[field] = st.selectbox(
+                            field,
+                            options=column_options,
+                            help=f"Select the column that corresponds to Shopify's {field}",
+                            key=f"optional_{field}"
+                        )
+            
+            # Update progress
+            mapped_fields = sum(1 for v in mapping.values() if v != "")
+            progress = mapped_fields / len(shopify_fields)
+            progress_bar.progress(progress)
+            status_text.text(f"Mapped {mapped_fields}/{len(shopify_fields)} fields")
+            
+            # Show data preview in an expandable section
+            with st.expander("📋 Data Preview", expanded=False):
+                st.dataframe(df.head(), use_container_width=True)
+                st.caption(f"Showing first 5 rows of {len(df)} total rows")
+            
+            # Save button with validation
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                if st.button("💾 Save Supplier Mapping", type="primary", use_container_width=True):
+                    if new_supplier_name not in supplier_mappings:
+                        # Since all Shopify required fields have defaults, we just need basic product info
+                        basic_fields_mapped = any(mapping.get(field, "") != "" for field in ["Title", "Variant SKU", "Variant Price", "Vendor"])
+                        if basic_fields_mapped:
+                            if save_supplier_mapping(new_supplier_name, mapping, supplier_mappings):
                                 st.success(f"✅ Successfully added supplier: {new_supplier_name}")
                                 st.balloons()
                                 # Clear cache to reload mappings
                                 st.cache_data.clear()
-                            else:
-                                st.error("❌ Please map at least Title, SKU, and Price fields")
+                                st.rerun()
                         else:
-                            st.error("❌ Supplier already exists!")
-                
-                with col2:
-                    if st.button("🔄 Reset Mapping", use_container_width=True):
-                        st.rerun()
-                        
-            except Exception as e:
-                st.error(f"❌ Error reading file: {str(e)}")
-                st.info("💡 Please make sure the file is a valid CSV or Excel file.")
+                            st.error("❌ Please map at least one of: Title, Variant SKU, Variant Price, or Vendor")
+                    else:
+                        st.error("❌ Supplier already exists!")
+            
+            with col2:
+                if st.button("🔄 Reset Mapping", use_container_width=True):
+                    st.rerun()
+                    
+        except Exception as e:
+            st.error(f"❌ Error reading file: {str(e)}")
+            st.info("💡 Please make sure the file is a valid CSV or Excel file.")
 
 elif supplier_tab == "👁️ View/Edit":
-    with st.sidebar.expander("View/Edit Suppliers", expanded=True):
-        if supplier_mappings:
-            selected_supplier = st.selectbox(
-                "Select Supplier",
-                options=list(supplier_mappings.keys()),
-                key="view_supplier"
-            )
+    st.sidebar.markdown("**View/Edit Suppliers**")
+    if supplier_mappings:
+        selected_supplier = st.sidebar.selectbox(
+            "Select Supplier",
+            options=list(supplier_mappings.keys()),
+            key="view_supplier"
+        )
+        
+        if selected_supplier:
+            st.sidebar.markdown(f"**Mapping for {selected_supplier}:**")
+            mapping_data = supplier_mappings[selected_supplier]
             
-            if selected_supplier:
-                st.markdown(f"**Mapping for {selected_supplier}:**")
-                mapping_data = supplier_mappings[selected_supplier]
-                
-                # Show mapping in a nice format
-                for shopify_field, supplier_field in mapping_data.items():
-                    if supplier_field and shopify_field != "_file_keyword":
-                        st.text(f"• {shopify_field} ← {supplier_field}")
-        else:
-            st.info("No suppliers configured yet.")
+            # Show mapping in a nice format
+            for shopify_field, supplier_field in mapping_data.items():
+                if supplier_field and shopify_field != "_file_keyword":
+                    st.sidebar.text(f"• {shopify_field} ← {supplier_field}")
+    else:
+        st.sidebar.info("No suppliers configured yet.")
 
 elif supplier_tab == "🗑️ Delete":
-    with st.sidebar.expander("Delete Supplier", expanded=True):
-        if supplier_mappings:
-            supplier_to_delete = st.selectbox(
-                "Select supplier to delete",
-                options=list(supplier_mappings.keys()),
-                key="supplier_delete"
-            )
-            
-            st.warning("⚠️ This action cannot be undone!")
-            
-            if st.button("🗑️ Delete Selected Supplier", type="secondary"):
-                if supplier_to_delete in supplier_mappings:
-                    del supplier_mappings[supplier_to_delete]
-                    with open('mappings/supplier_mappings.json', 'w') as f:
-                        json.dump(supplier_mappings, f, indent=4)
-                    st.success(f"✅ Successfully deleted supplier: {supplier_to_delete}")
-                    st.cache_data.clear()
-                    st.rerun()
-        else:
-            st.info("No suppliers to delete.")
+    st.sidebar.markdown("**Delete Supplier**")
+    if supplier_mappings:
+        supplier_to_delete = st.sidebar.selectbox(
+            "Select supplier to delete",
+            options=list(supplier_mappings.keys()),
+            key="supplier_delete"
+        )
+        
+        st.sidebar.warning("⚠️ This action cannot be undone!")
+        
+        if st.sidebar.button("🗑️ Delete Selected Supplier", type="secondary"):
+            if delete_supplier_mapping(supplier_to_delete, supplier_mappings):
+                st.success(f"✅ Successfully deleted supplier: {supplier_to_delete}")
+                st.cache_data.clear()
+                st.rerun()
+    else:
+        st.sidebar.info("No suppliers to delete.")
 
 # Main content area
 st.markdown("---")
@@ -286,7 +454,8 @@ suppliers = [
         "price_col": supplier_mappings[supplier].get("Cost per item", ""),
         "rrp_col": supplier_mappings[supplier].get("Variant Compare At Price", ""),
         "description_col": supplier_mappings[supplier].get("Title", ""),
-        "image_url_col": supplier_mappings[supplier].get("Image Src", "")
+        "image_url_col": supplier_mappings[supplier].get("Image Src", ""),
+        "qty_col": supplier_mappings[supplier].get("Variant Inventory Qty", "")  # Add this line
     } for supplier in supplier_mappings
 ]
 
@@ -384,67 +553,21 @@ else:
                         processing_errors.append(f"❌ {uploaded_file.name}: No matching supplier configuration")
                         continue
 
-                    # Extract column information
-                    item_code_col = supplier_config["item_code_col"]
-                    price_col = supplier_config["price_col"]
-                    rrp_col = supplier_config.get("rrp_col")
-                    description_col = supplier_config.get("description_col")
-                    image_url_col = supplier_config.get("image_url_col")
-                    supplier_name = supplier_config["name"]
-
-                    # Validate required columns
-                    missing_cols = []
-                    if item_code_col not in df.columns:
-                        missing_cols.append(item_code_col)
-                    if price_col not in df.columns:
-                        missing_cols.append(price_col)
+                    # Process the file
+                    success, message, rows_processed, total_rows = process_supplier_file(
+                        uploaded_file, supplier_config, item_data
+                    )
                     
-                    if missing_cols:
-                        processing_errors.append(f"❌ {uploaded_file.name}: Missing columns: {', '.join(missing_cols)}")
-                        continue
-
-                    # Process data
-                    df[price_col] = pd.to_numeric(df[price_col], errors='coerce')
-                    df = df.dropna(subset=[price_col])
-                    
-                    rows_processed = 0
-                    for index, row in df.iterrows():
-                        item_code = str(row[item_code_col]).strip()
-                        if not item_code or item_code == 'nan':
-                            continue
-                            
-                        price = row[price_col]
-                        rrp = row[rrp_col] if rrp_col and rrp_col in df.columns else 0
-                        description = str(row[description_col]) if description_col and description_col in df.columns else ""
-                        image_url = str(row[image_url_col]) if image_url_col and image_url_col in df.columns else ""
+                    if success:
+                        processed_files.append({
+                            "name": uploaded_file.name,
+                            "supplier": supplier_config["name"],
+                            "rows": rows_processed,
+                            "total_rows": total_rows
+                        })
+                    else:
+                        processing_errors.append(f"❌ {uploaded_file.name}: {message}")
                         
-                        # Update item data with cheapest price logic
-                        if item_code in item_data:
-                            if price < item_data[item_code]["Cheapest Price"]:
-                                item_data[item_code] = {
-                                    "Cheapest Price": price,
-                                    "Supplier": supplier_name,
-                                    "RRP": rrp,
-                                    "Description": description,
-                                    "ImageURL": image_url
-                                }
-                        else:
-                            item_data[item_code] = {
-                                "Cheapest Price": price,
-                                "Supplier": supplier_name,
-                                "RRP": rrp,
-                                "Description": description,
-                                "ImageURL": image_url
-                            }
-                        rows_processed += 1
-                    
-                    processed_files.append({
-                        "name": uploaded_file.name,
-                        "supplier": supplier_name,
-                        "rows": rows_processed,
-                        "total_rows": len(df)
-                    })
-                    
                 except Exception as e:
                     processing_errors.append(f"❌ {uploaded_file.name}: {str(e)}")
             
@@ -506,8 +629,25 @@ if st.session_state.processing_complete and 'item_data' in st.session_state:
             shopify_row = {col: "" for col in shopify_template["template_columns"]}
             
             # Generate handle from description
-            handle = data["Description"].lower().replace(" ", "-").replace("/", "-")[:60] if data["Description"] else item_code.lower()
+            title = data["Description"] if data["Description"] else item_code
+            handle = title.lower().replace(" ", "-").replace("/", "-")[:60] if title else item_code.lower()
             shopify_row["Handle"] = handle
+            
+            # Set required field defaults first
+            shopify_row["Published"] = "true"
+            shopify_row["Option1 Name"] = "Title"
+            shopify_row["Option1 Value"] = "Default Title"
+            shopify_row["Variant Grams"] = "0"
+            shopify_row["Variant Inventory Qty"] = data.get("Quantity", 0)
+            shopify_row["Variant Inventory Policy"] = "deny"
+            shopify_row["Variant Fulfillment Service"] = "manual"
+            shopify_row["Variant Requires Shipping"] = "true"
+            shopify_row["Variant Taxable"] = "true"
+            shopify_row["Gift Card"] = "false"
+            shopify_row["Variant Weight Unit"] = "kg"
+            shopify_row["Included / United States"] = "true"
+            shopify_row["Included / International"] = "true"
+            shopify_row["Status"] = "active"
             
             # Map the data using supplier mapping
             for shopify_col, supplier_col in supplier_mapping.items():
@@ -524,13 +664,21 @@ if st.session_state.processing_complete and 'item_data' in st.session_state:
                     shopify_row[shopify_col] = data["ImageURL"]
                 elif shopify_col == "Variant SKU":
                     shopify_row[shopify_col] = item_code
-            
-            # Set default values
-            shopify_row["Variant Inventory Policy"] = "deny"
-            shopify_row["Variant Fulfillment Service"] = "manual"
-            shopify_row["Variant Requires Shipping"] = "true"
-            shopify_row["Variant Taxable"] = "true"
-            shopify_row["Status"] = "active"
+                elif shopify_col == "Variant Inventory Qty":
+                    shopify_row[shopify_col] = data.get("Quantity", 0)
+                elif shopify_col == "Handle":
+                    # Use mapped value if available, otherwise use generated handle
+                    if supplier_col and supplier_col in df.columns:
+                        custom_handle = str(data.get(supplier_col, "")).lower().replace(" ", "-")[:60]
+                        if custom_handle:
+                            shopify_row[shopify_col] = custom_handle
+                elif shopify_col == "Vendor":
+                    # Use mapped vendor or supplier name as default
+                    shopify_row[shopify_col] = data.get("Vendor", supplier_name)
+                else:
+                    # For any other mapped field, use the value from data
+                    if supplier_col in data:
+                        shopify_row[shopify_col] = data[supplier_col]
             
             shopify_data.append(shopify_row)
         
@@ -539,6 +687,7 @@ if st.session_state.processing_complete and 'item_data' in st.session_state:
         
         # Display with better formatting
         st.markdown("### 🛒 Shopify Import Format")
+        st.info("✅ All required Shopify fields are included with proper defaults. Ready for import!")
         st.dataframe(shopify_df, use_container_width=True, height=400)
         
         # Download section
@@ -568,6 +717,7 @@ if st.session_state.processing_complete and 'item_data' in st.session_state:
                 "Cheapest Price": data["Cheapest Price"],
                 "Supplier": data["Supplier"],
                 "RRP": data["RRP"],
+                "Quantity": data.get("Quantity", 0),
                 "Description": data["Description"][:50] + "..." if len(data["Description"]) > 50 else data["Description"],
                 "Has Image": "Yes" if data["ImageURL"] else "No"
             }
