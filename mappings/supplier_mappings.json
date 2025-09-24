@@ -1,1 +1,11 @@
-{}
+{
+    "compuworld": {
+        "_file_keyword": "compuworld",
+        "Title": "Product Name",
+        "Body (HTML)": "Short Description",
+        "Product Category": "Category",
+        "Type": "Category",
+        "Tags": "Category",
+        "Variant SKU": "Manufacture Code"
+    }
+}

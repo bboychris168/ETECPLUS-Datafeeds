@@ -4,6 +4,15 @@ import json
 import os
 from datetime import datetime
 import re
+import time
+
+# OpenAI import - install with: pip install openai
+try:
+    from openai import OpenAI
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
+    st.warning("⚠️ OpenAI package not installed. Run: pip install openai")
 
 # Utility functions
 def extract_quantity(qty_value):
@@ -76,8 +85,45 @@ def delete_supplier_mapping(supplier_name, supplier_mappings):
 def process_supplier_file(uploaded_file, supplier_config, item_data):
     """Process a single supplier file and update item_data"""
     try:
-        # Read the CSV file
-        df = pd.read_csv(uploaded_file)
+        # Check file size first
+        file_size = uploaded_file.size
+        if file_size == 0:
+            return False, "File is empty (0 bytes)", 0, 0
+        
+        # Try different CSV reading approaches
+        df = None
+        try:
+            # First, try standard CSV reading
+            df = pd.read_csv(uploaded_file)
+        except pd.errors.EmptyDataError:
+            return False, "File contains no data or is empty", 0, 0
+        except pd.errors.ParserError as e:
+            # Try with different delimiters
+            uploaded_file.seek(0)  # Reset file pointer
+            try:
+                df = pd.read_csv(uploaded_file, delimiter=';')
+            except:
+                uploaded_file.seek(0)
+                try:
+                    df = pd.read_csv(uploaded_file, delimiter='\t')
+                except:
+                    return False, f"CSV parsing error: {str(e)}", 0, 0
+        except Exception as e:
+            return False, f"Error reading file: {str(e)}", 0, 0
+        
+        # Check if DataFrame is empty or has no columns
+        if df is None:
+            return False, "Failed to read CSV file", 0, 0
+        
+        if df.empty:
+            return False, "CSV file contains no data rows", 0, 0
+            
+        if len(df.columns) == 0:
+            return False, "CSV file contains no columns", 0, 0
+        
+        # Debug information - show available columns
+        available_columns = df.columns.tolist()
+        st.info(f"📋 Available columns in {uploaded_file.name}: {', '.join(available_columns[:10])}{'...' if len(available_columns) > 10 else ''}")
         
         # Extract column information
         item_code_col = supplier_config["item_code_col"]
@@ -90,13 +136,13 @@ def process_supplier_file(uploaded_file, supplier_config, item_data):
 
         # Validate required columns
         missing_cols = []
-        if item_code_col not in df.columns:
+        if item_code_col and item_code_col not in df.columns:
             missing_cols.append(item_code_col)
-        if price_col not in df.columns:
+        if price_col and price_col not in df.columns:
             missing_cols.append(price_col)
         
         if missing_cols:
-            return False, f"Missing columns: {', '.join(missing_cols)}", 0, 0
+            return False, f"Missing required columns: {', '.join(missing_cols)}. Available columns: {', '.join(available_columns)}", 0, 0
 
         # Process data
         df[price_col] = pd.to_numeric(df[price_col], errors='coerce')
@@ -145,7 +191,182 @@ def process_supplier_file(uploaded_file, supplier_config, item_data):
     except Exception as e:
         return False, str(e), 0, 0
 
-# Page configuration
+def setup_openai_client():
+    """Setup OpenAI client with API key"""
+    try:
+        # Try to get API key from environment variable first
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            # If not in environment, try to load from a config file
+            if os.path.exists('config/openai_config.json'):
+                with open('config/openai_config.json', 'r') as f:
+                    config = json.load(f)
+                    api_key = config.get('api_key')
+        
+        if api_key and OPENAI_AVAILABLE:
+            return OpenAI(api_key=api_key)
+        return None
+    except Exception as e:
+        st.error(f"Error setting up OpenAI client: {str(e)}")
+        return None
+
+def determine_product_category(title, description, vendor, sku="", use_openai=True):
+    """
+    Determine product category using OpenAI API or fallback to rule-based classification
+    """
+    if not use_openai or not OPENAI_AVAILABLE:
+        return classify_product_fallback(title, description, vendor)
+    
+    try:
+        client = setup_openai_client()
+        if not client:
+            return classify_product_fallback(title, description, vendor)
+        
+        # Prepare the prompt with product information
+        prompt = f"""
+        Analyze the following product information and determine the most appropriate product category.
+        
+        Product Details:
+        - Title: {title[:200] if title else 'No title'}
+        - Description: {description[:300] if description else 'No description'}
+        - Vendor/Brand: {vendor}
+        - SKU: {sku}
+        
+        Please respond with ONLY the category name from this list:
+        - Electronics
+        - Computers & Laptops
+        - Computer Components
+        - Networking Equipment
+        - Audio & Video
+        - Gaming
+        - Mobile & Tablets
+        - Accessories
+        - Office Supplies
+        - Software
+        - Storage & Memory
+        - Cables & Adapters
+        - Home & Garden
+        - Tools & Hardware
+        - Automotive
+        - Sports & Outdoors
+        - Health & Beauty
+        - Clothing & Apparel
+        - Books & Media
+        - Toys & Games
+        - Other
+        
+        If the product doesn't clearly fit into any category, respond with "Other".
+        Respond with only the category name, nothing else.
+        """
+        
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are a product categorization expert. Analyze product information and determine the most appropriate category."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=50,
+            temperature=0.1
+        )
+        
+        category = response.choices[0].message.content.strip()
+        
+        # Validate the response is one of our expected categories
+        valid_categories = [
+            "Electronics", "Computers & Laptops", "Computer Components", "Networking Equipment",
+            "Audio & Video", "Gaming", "Mobile & Tablets", "Accessories", "Office Supplies",
+            "Software", "Storage & Memory", "Cables & Adapters", "Home & Garden", "Tools & Hardware",
+            "Automotive", "Sports & Outdoors", "Health & Beauty", "Clothing & Apparel",
+            "Books & Media", "Toys & Games", "Other"
+        ]
+        
+        if category in valid_categories:
+            return category
+        else:
+            return "Other"
+            
+    except Exception as e:
+        st.warning(f"OpenAI API error, using fallback classification: {str(e)}")
+        return classify_product_fallback(title, description, vendor)
+
+def classify_product_fallback(title, description, vendor):
+    """
+    Fallback rule-based product classification when OpenAI API is not available
+    """
+    product_text = f"{title} {description} {vendor}".lower()
+    
+    # Define keyword mappings
+    category_keywords = {
+        "Computers & Laptops": ["laptop", "desktop", "computer", "pc", "workstation", "notebook"],
+        "Computer Components": ["motherboard", "cpu", "processor", "ram", "memory", "graphics card", "gpu", "hard drive", "ssd", "power supply", "psu"],
+        "Networking Equipment": ["router", "switch", "modem", "wifi", "ethernet", "network", "firewall", "access point"],
+        "Audio & Video": ["speaker", "headphone", "microphone", "camera", "webcam", "monitor", "display", "tv", "television"],
+        "Gaming": ["gaming", "xbox", "playstation", "nintendo", "console", "controller", "joystick"],
+        "Mobile & Tablets": ["phone", "smartphone", "tablet", "ipad", "android", "mobile", "cellular"],
+        "Storage & Memory": ["usb", "flash drive", "external drive", "storage", "backup", "cloud"],
+        "Cables & Adapters": ["cable", "adapter", "connector", "usb", "hdmi", "ethernet", "power cord"],
+        "Office Supplies": ["printer", "scanner", "paper", "ink", "toner", "office", "desk", "chair"],
+        "Software": ["software", "license", "program", "application", "antivirus", "windows", "microsoft"],
+        "Accessories": ["case", "cover", "stand", "mount", "charger", "battery", "keyboard", "mouse"]
+    }
+    
+    # Check for keyword matches
+    for category, keywords in category_keywords.items():
+        if any(keyword in product_text for keyword in keywords):
+            return category
+    
+    return "Electronics"  # Default category
+
+def batch_categorize_products(item_data, use_openai=True, max_items=100, progress_callback=None):
+    """
+    Categorize multiple products in batch with progress tracking
+    """
+    categorized_data = {}
+    items_to_process = list(item_data.items())[:max_items]
+    total_items = len(items_to_process)
+    
+    for i, (item_code, data) in enumerate(items_to_process):
+        if progress_callback:
+            progress_callback(i / total_items, f"Categorizing {item_code[:20]}...")
+        
+        category = determine_product_category(
+            title=data.get("Description", ""),
+            description=data.get("Description", ""),
+            vendor=data.get("Supplier", ""),
+            sku=item_code,
+            use_openai=use_openai
+        )
+        
+        # Add category to the data
+        updated_data = data.copy()
+        updated_data["Type"] = category
+        categorized_data[item_code] = updated_data
+        
+        # Add small delay to avoid rate limiting
+        if use_openai and OPENAI_AVAILABLE:
+            time.sleep(0.1)
+    
+        return categorized_data
+
+def preview_csv_file(uploaded_file, num_lines=5):
+    """Preview the first few lines of a CSV file for debugging"""
+    try:
+        # Reset file pointer
+        uploaded_file.seek(0)
+        
+        # Read first few lines as text
+        lines = []
+        for i, line in enumerate(uploaded_file):
+            if i >= num_lines:
+                break
+            lines.append(line.decode('utf-8', errors='ignore').strip())
+        
+        # Reset file pointer again
+        uploaded_file.seek(0)
+        
+        return lines
+    except Exception as e:
+        return [f"Error reading file: {str(e)}"]# Page configuration
 st.set_page_config(
     page_title="ETEC+ Supplier Datafeeds",
     page_icon="📊",
@@ -246,6 +467,58 @@ st.markdown('<div class="main-header">📊 ETEC+ Supplier Datafeeds Mapping</div
 
 # Sidebar with improved navigation
 st.sidebar.markdown("## 🔧 Configuration Panel")
+
+# OpenAI Configuration
+st.sidebar.markdown("### 🤖 AI Configuration")
+with st.sidebar.expander("OpenAI Settings", expanded=False):
+    openai_api_key = st.text_input(
+        "OpenAI API Key", 
+        type="password", 
+        help="Enter your OpenAI API key for automatic categorization"
+    )
+    
+    if st.button("💾 Save API Key"):
+        # Create config directory if it doesn't exist
+        os.makedirs('config', exist_ok=True)
+        
+        # Save API key to config file
+        config = {"api_key": openai_api_key}
+        with open('config/openai_config.json', 'w') as f:
+            json.dump(config, f)
+        st.success("API key saved!")
+    
+    use_ai_categorization = st.checkbox(
+        "Enable AI Categorization", 
+        value=True,
+        help="Use OpenAI to automatically determine product categories",
+        disabled=not OPENAI_AVAILABLE
+    )
+    
+    if not OPENAI_AVAILABLE:
+        st.error("OpenAI package not installed")
+    else:
+        st.info("💡 AI categorization requires an OpenAI API key")
+
+# Test OpenAI connection
+if st.sidebar.button("🔍 Test OpenAI Connection"):
+    if not OPENAI_AVAILABLE:
+        st.sidebar.error("❌ OpenAI package not installed")
+    else:
+        client = setup_openai_client()
+        if client:
+            try:
+                # Test with a simple categorization
+                test_category = determine_product_category(
+                    "Gaming Laptop", 
+                    "High performance gaming laptop with RTX graphics", 
+                    "ASUS",
+                    use_openai=True
+                )
+                st.sidebar.success(f"✅ OpenAI connected! Test category: {test_category}")
+            except Exception as e:
+                st.sidebar.error(f"❌ OpenAI test failed: {str(e)}")
+        else:
+            st.sidebar.error("❌ OpenAI client not configured")
 
 # Quick stats in sidebar
 if supplier_mappings:
@@ -516,6 +789,59 @@ else:
         
         st.info(f"📈 Total files: {len(uploaded_files)} | Total size: {total_size:.1f} MB")
         
+        # File preview section for debugging
+        with st.expander("🔍 File Preview (Debug)", expanded=False):
+            selected_file = st.selectbox(
+                "Select file to preview",
+                options=[f.name for f in uploaded_files],
+                help="Preview file contents to debug parsing issues"
+            )
+            
+            if selected_file:
+                preview_file = next(f for f in uploaded_files if f.name == selected_file)
+                lines = preview_csv_file(preview_file, 10)
+                
+                st.markdown("**First 10 lines of file:**")
+                for i, line in enumerate(lines, 1):
+                    st.text(f"{i}: {line}")
+                
+                # Try to detect delimiter
+                if lines:
+                    first_line = lines[0] if lines else ""
+                    comma_count = first_line.count(',')
+                    semicolon_count = first_line.count(';')
+                    tab_count = first_line.count('\t')
+                    
+                    st.info(f"**Delimiter Analysis:** Commas: {comma_count}, Semicolons: {semicolon_count}, Tabs: {tab_count}")
+                    
+                    if semicolon_count > comma_count:
+                        st.warning("⚠️ This file might use semicolons (;) as delimiters instead of commas")
+                    elif tab_count > comma_count:
+                        st.warning("⚠️ This file might use tabs as delimiters")
+        
+        # Processing options
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            categorize_products = st.checkbox(
+                "🤖 Auto-categorize products", 
+                value=use_ai_categorization if 'use_ai_categorization' in locals() else False,
+                help="Use AI to automatically determine product types"
+            )
+        with col2:
+            max_items_to_categorize = st.number_input(
+                "Max items to categorize", 
+                min_value=1, 
+                max_value=500, 
+                value=50,
+                help="Limit categorization to control API costs"
+            )
+        with col3:
+            categorization_method = st.selectbox(
+                "Categorization Method",
+                ["OpenAI API", "Rule-based"],
+                help="Choose between AI or keyword-based categorization"
+            )
+
         # Process files button
         if st.button("🚀 Process Files", type="primary", use_container_width=True):
             # Initialize progress tracking
@@ -570,6 +896,55 @@ else:
                         
                 except Exception as e:
                     processing_errors.append(f"❌ {uploaded_file.name}: {str(e)}")
+            
+            # AI Categorization phase
+            if categorize_products and item_data:
+                st.markdown("### 🤖 AI Product Categorization")
+                status_text.text("🤖 AI Categorizing products...")
+                progress_bar.progress(0)
+                
+                # Limit items for categorization
+                items_to_categorize = dict(list(item_data.items())[:max_items_to_categorize])
+                
+                def update_progress(progress, message):
+                    progress_bar.progress(progress)
+                    status_text.text(message)
+                
+                try:
+                    use_openai_api = (categorization_method == "OpenAI API" and 
+                                    'use_ai_categorization' in locals() and 
+                                    use_ai_categorization)
+                    
+                    categorized_data = batch_categorize_products(
+                        items_to_categorize, 
+                        use_openai=use_openai_api,
+                        max_items=max_items_to_categorize,
+                        progress_callback=update_progress
+                    )
+                    
+                    # Update the original data with categories
+                    for item_code, data in categorized_data.items():
+                        if item_code in item_data:
+                            item_data[item_code]["Type"] = data["Type"]
+                    
+                    # Show categorization results
+                    category_counts = {}
+                    for data in categorized_data.values():
+                        category = data.get("Type", "Unknown")
+                        category_counts[category] = category_counts.get(category, 0) + 1
+                    
+                    st.success(f"✅ Categorized {len(categorized_data)} products!")
+                    
+                    # Display category breakdown
+                    st.markdown("#### Category Breakdown:")
+                    cols = st.columns(min(len(category_counts), 4))
+                    for i, (category, count) in enumerate(category_counts.items()):
+                        with cols[i % 4]:
+                            st.metric(category, count)
+                    
+                except Exception as e:
+                    st.error(f"❌ Categorization failed: {str(e)}")
+                    st.info("💡 Products will be processed without categories")
             
             # Complete progress
             progress_bar.progress(1.0)
@@ -649,6 +1024,10 @@ if st.session_state.processing_complete and 'item_data' in st.session_state:
             shopify_row["Included / International"] = "true"
             shopify_row["Status"] = "active"
             
+            # Set the AI-determined type if available
+            if "Type" in data:
+                shopify_row["Type"] = data["Type"]
+            
             # Map the data using supplier mapping
             for shopify_col, supplier_col in supplier_mapping.items():
                 if shopify_col == "_file_keyword":
@@ -675,6 +1054,10 @@ if st.session_state.processing_complete and 'item_data' in st.session_state:
                 elif shopify_col == "Vendor":
                     # Use mapped vendor or supplier name as default
                     shopify_row[shopify_col] = data.get("Vendor", supplier_name)
+                elif shopify_col == "Type":
+                    # Don't override AI-determined type unless specifically mapped
+                    if supplier_col and supplier_col in data:
+                        shopify_row[shopify_col] = data[supplier_col]
                 else:
                     # For any other mapped field, use the value from data
                     if supplier_col in data:
@@ -716,6 +1099,7 @@ if st.session_state.processing_complete and 'item_data' in st.session_state:
                 "Item Code": item_code,
                 "Cheapest Price": data["Cheapest Price"],
                 "Supplier": data["Supplier"],
+                "Type": data.get("Type", "Not categorized"),
                 "RRP": data["RRP"],
                 "Quantity": data.get("Quantity", 0),
                 "Description": data["Description"][:50] + "..." if len(data["Description"]) > 50 else data["Description"],
