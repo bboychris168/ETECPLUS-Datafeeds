@@ -1,4 +1,10 @@
 .streamlit/secrets.toml
+streamlit/config.toml
+config.toml
+*.toml
+openai_config.json
+.env.local
+.env.production
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
