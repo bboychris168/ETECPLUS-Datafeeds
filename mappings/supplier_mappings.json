@@ -5,12 +5,12 @@
     "Body (HTML)": "Short Description",
     "Vendor_custom": "Compuworld",
     "Variant SKU": "Manufacture Code",
-    "Variant Grams": "Weight",
     "Variant Inventory Tracker_custom": "shopify",
     "Variant Inventory Qty": "Stock Qty",
     "Variant Price": "IncTax",
+    "Variant Barcode": "Manufacture Code",
     "Google Shopping / MPN": "Manufacture Code",
-    "Variant Weight Unit": "Weight"
+    "Cost per item": "ExTax"
   },
   "auscomp": {
     "_file_keyword": "auscomp",

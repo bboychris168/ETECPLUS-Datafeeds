@@ -185,13 +185,45 @@ def read_file(file):
 
 def find_and_remove_duplicates(combined_df):
     """Find duplicates and remove them, keeping lowest cost. Returns final df and duplicates info."""
+    st.write("🔍 **Duplicate Removal Debug:**")
+    
+    # Show initial vendor breakdown
+    if 'Vendor' in combined_df.columns:
+        initial_counts = combined_df['Vendor'].value_counts()
+        st.write(f"📊 Before duplicate removal:")
+        for vendor, count in initial_counts.items():
+            st.write(f"   • {vendor}: {count} products")
+    
     if 'Variant SKU' not in combined_df.columns or 'Cost per item' not in combined_df.columns:
+        st.write("⚠️ Missing required columns for duplicate removal")
         return combined_df, []
     
     # Convert cost to numeric
     combined_df['Cost per item'] = pd.to_numeric(combined_df['Cost per item'], errors='coerce')
+    
+    # Check for invalid costs by vendor
+    invalid_costs = combined_df[combined_df['Cost per item'].isna()]
+    if len(invalid_costs) > 0:
+        st.write(f"⚠️ Found {len(invalid_costs)} rows with invalid costs:")
+        if 'Vendor' in invalid_costs.columns:
+            invalid_by_vendor = invalid_costs['Vendor'].value_counts()
+            for vendor, count in invalid_by_vendor.items():
+                st.write(f"   • {vendor}: {count} invalid costs")
+    
     # Remove rows with invalid costs
+    before_dropna = len(combined_df)
     combined_df = combined_df.dropna(subset=['Cost per item'])
+    after_dropna = len(combined_df)
+    
+    if before_dropna != after_dropna:
+        st.write(f"🗑️ Removed {before_dropna - after_dropna} rows with invalid costs")
+        
+        # Show vendor breakdown after removing invalid costs
+        if 'Vendor' in combined_df.columns:
+            after_invalid_removal = combined_df['Vendor'].value_counts()
+            st.write(f"📊 After removing invalid costs:")
+            for vendor, count in after_invalid_removal.items():
+                st.write(f"   • {vendor}: {count} products")
     
     # Find duplicates before removal
     duplicates_info = []
@@ -220,6 +252,24 @@ def find_and_remove_duplicates(combined_df):
     # Remove duplicates keeping lowest cost
     final_df = combined_df.sort_values('Cost per item').drop_duplicates('Variant SKU', keep='first')
     
+    # Show final vendor breakdown after duplicate removal
+    if 'Vendor' in final_df.columns:
+        final_counts = final_df['Vendor'].value_counts()
+        st.write(f"📊 After duplicate removal:")
+        for vendor, count in final_counts.items():
+            st.write(f"   • {vendor}: {count} products")
+        
+        # Show what was removed by vendor
+        if len(duplicates_info) > 0:
+            removed_by_vendor = {}
+            for dup in duplicates_info:
+                vendor = dup['Vendor (Removed)']
+                removed_by_vendor[vendor] = removed_by_vendor.get(vendor, 0) + 1
+            
+            st.write(f"🗑️ Duplicates removed by vendor:")
+            for vendor, count in removed_by_vendor.items():
+                st.write(f"   • {vendor}: {count} products removed")
+    
     return final_df, duplicates_info
 
 def process_files(uploaded_files, mappings):
@@ -228,14 +278,25 @@ def process_files(uploaded_files, mappings):
     
     for file in uploaded_files:
         supplier = detect_supplier(file.name)
+        st.write(f"🔍 Processing {file.name} - Detected supplier: {supplier}")  # Debug info
         
         if supplier and supplier in mappings:
+            st.write(f"✅ Found mapping for {supplier}")  # Debug info
+            
             df = read_file(file)
             if df is not None:
+                st.write(f"📊 Read {len(df)} rows from {file.name}")  # Debug info
+                st.write(f"📋 Available columns in {file.name}: {list(df.columns)}")  # Show actual columns
+                
                 mapping = mappings[supplier]
+                st.write(f"🔗 Applying {len(mapping)} mappings for {supplier}")
                 
                 # Apply mapping
                 mapped_data = {}
+                successful_mappings = 0
+                custom_mappings = 0
+                missing_columns = []
+                
                 for shopify_field, supplier_field in mapping.items():
                     if shopify_field == "_file_keyword":
                         # Skip _file_keyword - it's not a Shopify field
@@ -246,43 +307,74 @@ def process_files(uploaded_files, mappings):
                     elif supplier_field and supplier_field in df.columns:
                         # Map from supplier column
                         mapped_data[shopify_field] = df[supplier_field]
+                        successful_mappings += 1
                     elif f"{shopify_field}_custom" in mapping and mapping[f"{shopify_field}_custom"]:
-                        # Use custom text value
+                        # Use custom text value - FIX: Create list to match DataFrame rows
                         custom_value = mapping[f"{shopify_field}_custom"]
-                        mapped_data[shopify_field] = custom_value
+                        mapped_data[shopify_field] = [custom_value] * len(df)
+                        custom_mappings += 1
                     else:
-                        # Leave empty
-                        mapped_data[shopify_field] = ""
+                        # Leave empty - FIX: Create list to match DataFrame rows
+                        mapped_data[shopify_field] = [""] * len(df)
+                        if supplier_field and supplier_field not in df.columns:
+                            missing_columns.append(f"{shopify_field} → {supplier_field}")
+                
+                st.write(f"   ✅ Column mappings: {successful_mappings}")
+                st.write(f"   📝 Custom values: {custom_mappings}")
+                if missing_columns:
+                    st.write(f"   ⚠️ Missing columns: {', '.join(missing_columns)}")
                 
                 # Create DataFrame
-                result_df = pd.DataFrame(mapped_data)
-                
-                # Process quantity if mapped
-                if 'Variant Inventory Qty' in result_df.columns:
-                    result_df['Variant Inventory Qty'] = result_df['Variant Inventory Qty'].apply(extract_quantity)
-                
-                # Add vendor
-                result_df['Vendor'] = supplier
-                
-                # Normalize data types to prevent concatenation errors
-                result_df = normalize_dataframe_types(result_df)
-                
-                # Add default values for required fields
-                result_df['Published'] = 'true'
-                result_df['Option1 Name'] = 'Title'
-                result_df['Option1 Value'] = 'Default Title'
-                result_df['Variant Inventory Tracker'] = 'shopify'
-                result_df['Variant Inventory Policy'] = 'deny'
-                result_df['Variant Fulfillment Service'] = 'manual'
-                result_df['Variant Requires Shipping'] = 'true'
-                result_df['Variant Taxable'] = 'true'
-                result_df['Gift Card'] = 'false'
-                result_df['Status'] = 'active'
-                
-                all_data.append(result_df)
-                st.success(f"✅ {file.name}: {len(result_df)} products processed")
+                if mapped_data:
+                    result_df = pd.DataFrame(mapped_data)
+                    st.write(f"📊 Created DataFrame: {len(result_df)} rows × {len(result_df.columns)} columns")
+                    
+                    # Process quantity if mapped
+                    if 'Variant Inventory Qty' in result_df.columns:
+                        result_df['Variant Inventory Qty'] = result_df['Variant Inventory Qty'].apply(extract_quantity)
+                    
+                    # Add vendor
+                    result_df['Vendor'] = supplier
+                    
+                    # Normalize data types to prevent concatenation errors
+                    result_df = normalize_dataframe_types(result_df)
+                    
+                    # Add default values for required fields
+                    result_df['Published'] = 'true'
+                    result_df['Option1 Name'] = 'Title'
+                    result_df['Option1 Value'] = 'Default Title'
+                    result_df['Variant Inventory Tracker'] = 'shopify'
+                    result_df['Variant Inventory Policy'] = 'deny'
+                    result_df['Variant Fulfillment Service'] = 'manual'
+                    result_df['Variant Requires Shipping'] = 'true'
+                    result_df['Variant Taxable'] = 'true'
+                    result_df['Gift Card'] = 'false'
+                    result_df['Status'] = 'active'
+                    
+                    # Show sample data for debugging
+                    st.write(f"📋 Sample data from {supplier}:")
+                    sample_cols = ['Title', 'Variant SKU', 'Vendor', 'Variant Price']
+                    available_cols = [col for col in sample_cols if col in result_df.columns]
+                    if available_cols:
+                        st.dataframe(result_df[available_cols].head(2))
+                    
+                    all_data.append(result_df)
+                    st.success(f"✅ {file.name}: {len(result_df)} products processed from {supplier}")
+                else:
+                    st.error(f"❌ {file.name}: No valid mappings found for {supplier}")
+                    st.write(f"Mapped data keys: {list(mapped_data.keys()) if mapped_data else 'None'}")
+            else:
+                st.error(f"❌ {file.name}: Could not read file")
         else:
-            st.warning(f"⚠️ {file.name}: No mapping found")
+            if supplier:
+                st.warning(f"⚠️ {file.name}: Detected supplier '{supplier}' but no mapping found")
+                st.write(f"Available mappings: {list(mappings.keys())}")
+            else:
+                st.warning(f"⚠️ {file.name}: Could not detect supplier from filename")
+                st.write("Available suppliers with keywords:")
+                for supp, map_data in mappings.items():
+                    keyword = map_data.get('_file_keyword', 'No keyword')
+                    st.write(f"• {supp}: '{keyword}'")
     
     return all_data
 
@@ -526,44 +618,129 @@ with tab4:
         st.warning("⚠️ Please create column mappings first.")
     else:
         st.header("⚡ Process & Export")
+        
+        # Debug section - add this to help identify the issue
+        with st.expander("🔍 Debug Info", expanded=False):
+            st.write("**Uploaded Files:**")
+            for file in st.session_state.uploaded_files:
+                supplier = detect_supplier(file.name)
+                has_mapping = supplier in st.session_state.supplier_mappings if supplier else False
+                st.write(f"• {file.name} → {supplier or 'No supplier detected'} → {'✅ Has mapping' if has_mapping else '❌ No mapping'}")
+            
+            st.write("\n**Available Mappings:**")
+            for supplier, mapping in st.session_state.supplier_mappings.items():
+                keyword = mapping.get('_file_keyword', 'No keyword')
+                mapped_fields = [k for k in mapping.keys() if not k.startswith('_') and not k.endswith('_custom')]
+                custom_fields = [k.replace('_custom', '') for k in mapping.keys() if k.endswith('_custom')]
+                st.write(f"• {supplier}: keyword='{keyword}'")
+                st.write(f"  - Mapped fields: {len(mapped_fields)} ({', '.join(mapped_fields[:3])}{'...' if len(mapped_fields) > 3 else ''})")
+                st.write(f"  - Custom fields: {len(custom_fields)} ({', '.join(custom_fields[:3])}{'...' if len(custom_fields) > 3 else ''})")
+            
+            # Show column differences that might cause conflicts
+            st.write("\n**Potential Data Type Conflicts:**")
+            st.write("Fields that some suppliers have but others don't:")
+            all_fields = set()
+            supplier_fields = {}
+            for supplier, mapping in st.session_state.supplier_mappings.items():
+                fields = set([k for k in mapping.keys() if not k.startswith('_') and not k.endswith('_custom')])
+                supplier_fields[supplier] = fields
+                all_fields.update(fields)
+            
+            for field in sorted(all_fields):
+                suppliers_with_field = [s for s, fields in supplier_fields.items() if field in fields]
+                suppliers_without_field = [s for s, fields in supplier_fields.items() if field not in fields]
+                if len(suppliers_without_field) > 0:
+                    st.write(f"• {field}: ✅ {', '.join(suppliers_with_field)} | ❌ {', '.join(suppliers_without_field)}")
+        
         if st.button("🚀 Process Files"):
             all_data = process_files(st.session_state.uploaded_files, st.session_state.supplier_mappings)
             
             if all_data:
-                # Normalize data types before combining to prevent type conflicts
-                normalized_data = []
-                for df in all_data:
-                    df_copy = df.copy()
-                    # Convert all object columns to string to ensure compatibility
-                    for col in df_copy.columns:
-                        if df_copy[col].dtype == 'object' and col not in ['Variant Inventory Qty', 'Variant Price', 'Cost per item']:
-                            df_copy[col] = df_copy[col].astype(str)
-                    normalized_data.append(df_copy)
+                st.write(f"📊 Processing {len(all_data)} supplier files...")
                 
-                # Combine data
-                try:
-                    combined_df = pd.concat(normalized_data, ignore_index=True)
-                except Exception as e:
-                    st.error(f"Error combining data: {str(e)}")
-                    st.info("This usually happens when suppliers have different data types. Trying alternative method...")
+                # Show details of each supplier's data before combining
+                for i, df in enumerate(all_data):
+                    vendor = df['Vendor'].iloc[0] if 'Vendor' in df.columns and len(df) > 0 else f"Supplier {i+1}"
+                    st.write(f"📋 Supplier {i+1} ({vendor}): {len(df)} rows, {len(df.columns)} columns")
+                    if 'Title' in df.columns:
+                        sample_titles = df['Title'].head(2).tolist()
+                        st.write(f"   📝 Sample products: {', '.join([str(t)[:50] + '...' if len(str(t)) > 50 else str(t) for t in sample_titles])}")
+                
+                # More aggressive normalization before combining
+                normalized_data = []
+                for i, df in enumerate(all_data):
+                    vendor = df['Vendor'].iloc[0] if 'Vendor' in df.columns and len(df) > 0 else f"Supplier {i+1}"
+                    st.write(f"� Normalizing {vendor}: {len(df)} rows")
                     
-                    # Alternative: combine with string conversion
+                    # Apply our comprehensive normalization
+                    df_normalized = normalize_dataframe_types(df)
+                    normalized_data.append(df_normalized)
+                
+                # Combine data with robust error handling
+                try:
+                    st.write("🔗 Attempting to combine data...")
+                    combined_df = pd.concat(normalized_data, ignore_index=True)
+                    st.success(f"✅ Successfully combined {len(combined_df)} rows")
+                    
+                    # Show breakdown by vendor after successful combination
+                    if 'Vendor' in combined_df.columns:
+                        vendor_counts = combined_df['Vendor'].value_counts()
+                        st.write("📊 **Final Combined Data by Vendor:**")
+                        for vendor, count in vendor_counts.items():
+                            st.write(f"   • {vendor}: {count} products")
+                    else:
+                        st.warning("⚠️ No Vendor column found in combined data")
+                except Exception as e:
+                    st.error(f"❌ Error combining data: {str(e)}")
+                    st.info("🔧 Trying manual combination method...")
+                    
+                    # Manual combination with column alignment
                     combined_df = pd.DataFrame()
-                    for df in normalized_data:
+                    for i, df in enumerate(normalized_data):
+                        st.write(f"🔄 Adding supplier {i+1}...")
+                        
                         if combined_df.empty:
                             combined_df = df.copy()
+                            st.write(f"   📝 Base: {len(combined_df)} rows, {len(combined_df.columns)} columns")
                         else:
-                            # Ensure all columns exist in both DataFrames
-                            all_columns = set(combined_df.columns) | set(df.columns)
+                            # Get all unique columns
+                            all_columns = list(set(combined_df.columns) | set(df.columns))
+                            
+                            # Add missing columns to both DataFrames
                             for col in all_columns:
                                 if col not in combined_df.columns:
                                     combined_df[col] = ""
                                 if col not in df.columns:
                                     df[col] = ""
                             
-                            # Reorder columns to match
-                            df = df.reindex(columns=combined_df.columns, fill_value="")
-                            combined_df = pd.concat([combined_df, df], ignore_index=True)
+                            # Ensure same column order
+                            combined_df = combined_df.reindex(columns=all_columns, fill_value="")
+                            df = df.reindex(columns=all_columns, fill_value="")
+                            
+                            # Force all columns to string type for consistency
+                            for col in all_columns:
+                                if col not in ['Variant Inventory Qty', 'Variant Price', 'Cost per item', 'Variant Grams']:
+                                    combined_df[col] = combined_df[col].astype(str)
+                                    df[col] = df[col].astype(str)
+                            
+                            # Combine
+                            try:
+                                combined_df = pd.concat([combined_df, df], ignore_index=True)
+                                st.write(f"   ✅ Added: {len(df)} rows. Total: {len(combined_df)} rows")
+                            except Exception as inner_e:
+                                st.error(f"   ❌ Failed to add supplier {i+1}: {str(inner_e)}")
+                                st.write(f"   📊 Combined columns: {list(combined_df.columns)}")
+                                st.write(f"   📊 Supplier columns: {list(df.columns)}")
+                                continue
+                
+                # Show final combination results
+                if 'Vendor' in combined_df.columns:
+                    vendor_counts = combined_df['Vendor'].value_counts()
+                    st.write("📊 **Manual Combination Results by Vendor:**")
+                    for vendor, count in vendor_counts.items():
+                        st.write(f"   • {vendor}: {count} products")
+                else:
+                    st.warning("⚠️ No Vendor column found in manually combined data")
                 
                 # Remove duplicates and get duplicate info
                 final_df, duplicates_info = find_and_remove_duplicates(combined_df)
