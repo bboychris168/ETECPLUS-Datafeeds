@@ -1,11 +1,45 @@
 {
-    "compuworld": {
-        "_file_keyword": "compuworld",
-        "Title": "Product Name",
-        "Body (HTML)": "Short Description",
-        "Product Category": "Category",
-        "Type": "Category",
-        "Tags": "Category",
-        "Variant SKU": "Manufacture Code"
-    }
+  "compuworld": {
+    "_file_keyword": "compuworld",
+    "Title": "Product Name",
+    "Body (HTML)": "Short Description",
+    "Vendor_custom": "Compuworld",
+    "Variant SKU": "Manufacture Code",
+    "Variant Grams": "Weight",
+    "Variant Inventory Tracker_custom": "shopify",
+    "Variant Inventory Qty": "Stock Qty",
+    "Variant Price": "IncTax",
+    "Google Shopping / MPN": "Manufacture Code",
+    "Variant Weight Unit": "Weight"
+  },
+  "auscomp": {
+    "_file_keyword": "auscomp",
+    "Title": "Item Description",
+    "Body (HTML)": "Item Description",
+    "Vendor_custom": "Leaders Systems",
+    "Variant SKU": "Manufacturer ID",
+    "Variant Inventory Tracker_custom": "shopify",
+    "Variant Inventory Qty": "AvailableQty",
+    "Variant Price": "Retail Price Incl_ GST",
+    "Image Src": "Item URL",
+    "Google Shopping / MPN": "Manufacturer ID",
+    "Google Shopping / Condition_custom": "new",
+    "Variant Image": "Item URL",
+    "Cost per item": "Price"
+  },
+  "Leaders": {
+    "_file_keyword": "leaders",
+    "Title": "SHORT DESCRIPTION",
+    "Body (HTML)": "LONG DESCRIPTION",
+    "Vendor_custom": "Leaders",
+    "Variant SKU": "MANUFACTURER SKU",
+    "Variant Inventory Tracker_custom": "shopify",
+    "Variant Inventory Qty": "AT",
+    "Variant Price": "RRP",
+    "Variant Barcode": "BAR CODE",
+    "Image Src": "IMAGE",
+    "Google Shopping / MPN": "MANUFACTURER SKU",
+    "Variant Image": "IMAGE",
+    "Cost per item": "DBP"
+  }
 }
