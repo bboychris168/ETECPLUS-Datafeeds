@@ -11,7 +11,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Simple CSS
+# Enhanced CSS with mapping highlights
 st.markdown("""
 <style>
     .main-header {
@@ -28,6 +28,30 @@ st.markdown("""
         border-radius: 8px;
         border-left: 4px solid #667eea;
         margin: 1rem 0;
+    }
+
+    .mapping-status {
+        font-weight: bold;
+        padding: 5px 10px;
+        border-radius: 15px;
+        font-size: 0.9em;
+        margin-left: 10px;
+    }
+    .status-mapped {
+        background: #28a745;
+        color: white;
+    }
+    .status-custom {
+        background: #17a2b8;
+        color: white;
+    }
+    .status-missing {
+        background: #dc3545;
+        color: white;
+    }
+    .status-required {
+        background: #ffc107;
+        color: black;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -516,7 +540,41 @@ with tab3:
                     existing = st.session_state.supplier_mappings.get(supplier, {})
                     
                     st.subheader("Column Mappings")
-                    st.info("💡 Map your supplier columns to Shopify fields. Leave blank if not available in your data.")
+                    
+                    # Show mapping status summary
+                    actual_shopify_fields = [field for field in shopify_fields if field != "_file_keyword"]
+                    important_fields = ["Variant SKU", "Title", "Variant Price", "Cost per item", "Variant Inventory Qty"]
+                    
+                    mapped_count = 0
+                    custom_count = 0
+                    important_missing = []
+                    
+                    for field in actual_shopify_fields:
+                        current_mapping = existing.get(field, "")
+                        current_custom = existing.get(f"{field}_custom", "")
+                        
+                        if current_mapping:
+                            mapped_count += 1
+                        elif current_custom:
+                            custom_count += 1
+                        elif field in important_fields:
+                            important_missing.append(field)
+                    
+                    # Status summary
+                    col_a, col_b, col_c = st.columns(3)
+                    with col_a:
+                        st.metric("📋 Column Mappings", mapped_count, f"of {len(actual_shopify_fields)} fields")
+                    with col_b:
+                        st.metric("📝 Custom Values", custom_count)
+                    with col_c:
+                        st.metric("⚠️ Missing Important", len(important_missing), delta=f"-{len(important_missing)}" if important_missing else None)
+                    
+                    if important_missing:
+                        st.error(f"🚨 **Critical fields missing:** {', '.join(important_missing)}")
+                    else:
+                        st.success("✅ **All critical fields are mapped!**")
+                    
+                    st.info("💡 **Color Guide:** 🟢 Green = Mapped | 🟡 Yellow = Required | 🔴 Red = Missing")
                     
                     # File keyword for auto-detection
                     mapping = {}
@@ -536,34 +594,58 @@ with tab3:
                             current_mapping = existing.get(field, "")
                             current_custom = existing.get(f"{field}_custom", "")
                             
-                            # Highlight important fields
+                            # Determine field status and styling
                             important_fields = ["Variant SKU", "Title", "Variant Price", "Cost per item", "Variant Inventory Qty"]
-                            label = f"⭐ {field}" if field in important_fields else field
+                            is_important = field in important_fields
+                            has_mapping = bool(current_mapping)
+                            has_custom = bool(current_custom)
                             
-                            st.markdown(f"**{label}**")
+                            # Create status indicators
+                            if has_mapping:
+                                status = "✅ MAPPED"
+                                status_class = "status-mapped"
+                            elif has_custom:
+                                status = "📝 CUSTOM"
+                                status_class = "status-custom" 
+                            elif is_important:
+                                status = "⚠️ REQUIRED"
+                                status_class = "status-required"
+                            else:
+                                status = "❌ MISSING"
+                                status_class = "status-missing"
+                            
+                            # Field header with status
+                            icon = "⭐" if is_important else "📋"
+                            header_html = f"""
+                            <div style="display: flex; align-items: center; margin-bottom: 10px;">
+                                <span style="font-size: 1.1em; font-weight: bold;">{icon} {field}</span>
+                                <span class="mapping-status {status_class}">{status}</span>
+                            </div>
+                            """
+                            st.markdown(header_html, unsafe_allow_html=True)
                             
                             # Radio button to choose mapping type
                             mapping_type = st.radio(
                                 f"How to set {field}:",
-                                ["Map from supplier column", "Enter custom text", "Leave empty"],
+                                ["📋 Map from supplier column", "📝 Enter custom text", "❌ Leave empty"],
                                 key=f"{field}_type",
                                 horizontal=True,
                                 index=0 if current_mapping and current_mapping in supplier_columns else (1 if current_custom else 2)
                             )
                             
-                            if mapping_type == "Map from supplier column":
+                            if mapping_type == "📋 Map from supplier column":
                                 mapping[field] = st.selectbox(
                                     f"Select column for {field}:",
                                     supplier_columns,
                                     index=supplier_columns.index(current_mapping) if current_mapping in supplier_columns else 0,
                                     key=f"{field}_select",
-                                    help=f"Map to your supplier column for {field}" + (" (Recommended)" if field in important_fields else "")
+                                    help=f"Map to your supplier column for {field}" + (" (⭐ Highly Recommended)" if is_important else "")
                                 )
                                 # Clear custom text if mapping from column
                                 if f"{field}_custom" in mapping:
                                     del mapping[f"{field}_custom"]
                                     
-                            elif mapping_type == "Enter custom text":
+                            elif mapping_type == "📝 Enter custom text":
                                 mapping[f"{field}_custom"] = st.text_input(
                                     f"Custom text for {field}:",
                                     value=current_custom,
@@ -579,7 +661,8 @@ with tab3:
                                 if f"{field}_custom" in mapping:
                                     del mapping[f"{field}_custom"]
                             
-                            st.markdown("---")  # Separator between fields
+                            # Add separator line
+                            st.markdown("---")
                     
                     if st.button("💾 Save Mapping"):
                         # Clean mapping - keep file keyword, non-empty values, and custom text
