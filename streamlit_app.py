@@ -159,6 +159,57 @@ def normalize_dataframe_types(df):
     
     return df_normalized
 
+def generate_shopify_tags(df, item_code_column, tag_columns):
+    """Generate Shopify tags by combining data from multiple columns"""
+    tags_list = []
+    
+    for _, row in df.iterrows():
+        tags = []
+        
+        # Process each selected tag column
+        for col in tag_columns:
+            if col in df.columns and pd.notna(row[col]) and str(row[col]).strip():
+                value = str(row[col]).strip()
+                
+                # Split on common separators and special characters
+                parts = re.split(r'[-_\s/\\|,;:]+', value)
+                
+                # Clean each part
+                for part in parts:
+                    # Remove special characters and normalize
+                    clean_part = re.sub(r'[^\w\s]', '', part).strip()
+                    
+                    # Convert to lowercase and add if not empty
+                    if clean_part and len(clean_part) > 1:  # Ignore single character tags
+                        tags.append(clean_part.lower())
+        
+        # Remove duplicates while preserving order
+        unique_tags = []
+        seen = set()
+        for tag in tags:
+            if tag not in seen:
+                unique_tags.append(tag)
+                seen.add(tag)
+        
+        # Join tags with commas
+        final_tags = ', '.join(unique_tags) if unique_tags else ''
+        tags_list.append(final_tags)
+    
+    return tags_list
+
+def save_tag_mapping(tag_config):
+    """Save tag generation configuration"""
+    os.makedirs("mappings", exist_ok=True)
+    with open("mappings/tag_config.json", 'w') as f:
+        json.dump(tag_config, f, indent=2)
+
+def load_tag_mapping():
+    """Load tag generation configuration"""
+    if os.path.exists("mappings/tag_config.json"):
+        with open("mappings/tag_config.json", 'r') as f:
+            return json.load(f)
+    return {}
+
 def detect_supplier(filename):
     """Detect supplier from filename"""
     filename = filename.lower()
@@ -375,6 +426,30 @@ def process_files(uploaded_files, mappings):
                     result_df['Gift Card'] = 'false'
                     result_df['Status'] = 'active'
                     
+                    # Generate tags if configured
+                    tag_columns = mapping.get("_tag_columns", [])
+                    if tag_columns:
+                        st.write(f"🏷️ Generating tags from columns: {', '.join(tag_columns)}")
+                        
+                        # Use original supplier data for tag generation (not the mapped result)
+                        item_code_col = 'Variant SKU'  # Use SKU as identifier
+                        available_tag_cols = [col for col in tag_columns if col in df.columns]
+                        
+                        if available_tag_cols:
+                            tags = generate_shopify_tags(df, item_code_col, available_tag_cols)
+                            result_df['Tags'] = tags
+                            
+                            # Show tag statistics
+                            total_tags = sum(len(tag_str.split(', ')) if tag_str else 0 for tag_str in tags)
+                            products_with_tags = sum(1 for tag_str in tags if tag_str)
+                            st.write(f"   ✅ Generated {total_tags} tags for {products_with_tags}/{len(result_df)} products")
+                        else:
+                            st.write(f"   ⚠️ Tag columns not found in supplier data: {tag_columns}")
+                            result_df['Tags'] = ''
+                    else:
+                        st.write("📝 No tag columns configured for this supplier")
+                        result_df['Tags'] = ''
+                    
                     # Show sample data for debugging
                     st.write(f"📋 Sample data from {supplier}:")
                     sample_cols = ['Title', 'Variant SKU', 'Vendor', 'Variant Price']
@@ -423,9 +498,9 @@ if not shopify_configured:
 
 # Tabs
 if shopify_configured:
-    tab1, tab2, tab3, tab4 = st.tabs(["🏪 Shopify Template", "📁 Upload", "🔗 Map", "⚡ Export"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏪 Shopify Template", "📁 Upload", "🔗 Map", "⚡ Export", "🏷️ Tags"])
 else:
-    tab1, tab2, tab3, tab4 = st.tabs(["🏪 Shopify Template", "📁 Upload (Disabled)", "🔗 Map (Disabled)", "⚡ Export (Disabled)"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏪 Shopify Template", "📁 Upload (Disabled)", "🔗 Map (Disabled)", "⚡ Export (Disabled)", "🏷️ Tags (Disabled)"])
 
 # Shopify Template Tab
 with tab1:
@@ -664,12 +739,37 @@ with tab3:
                             # Add separator line
                             st.markdown("---")
                     
+                    # Tag Configuration Section
+                    st.subheader("🏷️ Tag Generation Configuration")
+                    st.info("💡 Configure which columns to use for generating Shopify tags automatically")
+                    
+                    # Get current tag config from existing mapping
+                    current_tag_columns = existing.get("_tag_columns", [])
+                    
+                    tag_columns = st.multiselect(
+                        "Select columns to generate tags from:",
+                        supplier_columns[1:],  # Exclude empty option
+                        default=[col for col in current_tag_columns if col in supplier_columns],
+                        key=f"{supplier}_tag_columns",
+                        help="Tags will be generated by combining and cleaning data from these columns"
+                    )
+                    
+                    # Add tag configuration to mapping
+                    if tag_columns:
+                        mapping["_tag_columns"] = tag_columns
+                        st.success(f"✅ Will generate tags from: {', '.join(tag_columns)}")
+                    else:
+                        st.info("📝 No tag columns selected - tags will be empty")
+                        mapping["_tag_columns"] = []
+                    
                     if st.button("💾 Save Mapping"):
                         # Clean mapping - keep file keyword, non-empty values, and custom text
                         clean_mapping = {}
                         for k, v in mapping.items():
                             if k == "_file_keyword":
                                 clean_mapping[k] = v
+                            elif k == "_tag_columns":
+                                clean_mapping[k] = v  # Always save tag columns (even if empty)
                             elif k.endswith('_custom') and v:
                                 clean_mapping[k] = v
                             elif not k.endswith('_custom') and v:
@@ -921,6 +1021,148 @@ with tab4:
                 # Store in session for reference
                 st.session_state.processed_data = final_df
                 st.session_state.duplicates_info = duplicates_info
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# Tags Tab
+with tab5:
+    st.markdown('<div class="step-box">', unsafe_allow_html=True)
+    
+    if not shopify_configured:
+        st.header("🏷️ Tag Configuration (Disabled)")
+        st.warning("⚠️ Please configure your Shopify template first.")
+    else:
+        st.header("🏷️ Supplier Tag Configuration")
+        st.info("🎯 **Purpose:** Configure tag generation for each supplier. Tags are automatically generated during export.")
+        
+        # Show current tag configurations
+        st.subheader("📋 Current Tag Configurations")
+        
+        if st.session_state.supplier_mappings:
+            for supplier, mapping in st.session_state.supplier_mappings.items():
+                tag_columns = mapping.get("_tag_columns", [])
+                
+                with st.expander(f"🏷️ {supplier} Tag Configuration", expanded=False):
+                    if tag_columns:
+                        st.success(f"✅ **Configured:** Generating tags from {len(tag_columns)} columns")
+                        st.write("**Tag source columns:**")
+                        for col in tag_columns:
+                            st.write(f"• {col}")
+                        
+                        # Show example of how tags would be processed
+                        st.write("**Tag processing:**")
+                        st.code("""
+Example: "Gaming-Laptops_16GB/RTX" → "gaming, laptops, 16gb, rtx"
+• Splits on: - _ / \\ | , ; : spaces
+• Removes special characters
+• Converts to lowercase
+• Removes duplicates
+                        """)
+                    else:
+                        st.warning("⚠️ **Not configured:** No tag columns selected")
+                        st.info("� Go to the **Map** tab to configure tag generation for this supplier")
+        else:
+            st.info("� No supplier mappings created yet. Go to the **Map** tab to create mappings first.")
+        
+        # Show tag processing explanation
+        st.subheader("🔧 How Tag Generation Works")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("**📋 Configuration (in Map tab):**")
+            st.write("• Select supplier file")
+            st.write("• Choose columns for tag generation")
+            st.write("• Save mapping with tag config")
+        
+        with col2:
+            st.write("**⚡ Generation (during Export):**")
+            st.write("• Tags auto-generated per supplier")
+            st.write("• Combined with other supplier data")
+            st.write("• Included in final CSV export")
+        
+        # Show tag analysis from processed data
+        if 'processed_data' in st.session_state and 'Tags' in st.session_state.processed_data.columns:
+            st.subheader("📊 Generated Tags Analysis")
+            
+            processed_df = st.session_state.processed_data
+            
+            # Tag statistics
+            tags_column = processed_df['Tags']
+            total_products = len(processed_df)
+            products_with_tags = sum(1 for tag_str in tags_column if tag_str and str(tag_str).strip())
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Total Products", total_products)
+            with col2:
+                st.metric("Products with Tags", products_with_tags)
+            with col3:
+                coverage = (products_with_tags / total_products * 100) if total_products > 0 else 0
+                st.metric("Tag Coverage", f"{coverage:.1f}%")
+            
+            # Show tag breakdown by vendor
+            if 'Vendor' in processed_df.columns:
+                st.write("**📊 Tag Coverage by Supplier:**")
+                vendor_stats = []
+                
+                for vendor in processed_df['Vendor'].unique():
+                    vendor_df = processed_df[processed_df['Vendor'] == vendor]
+                    vendor_total = len(vendor_df)
+                    vendor_with_tags = sum(1 for tag_str in vendor_df['Tags'] if tag_str and str(tag_str).strip())
+                    vendor_coverage = (vendor_with_tags / vendor_total * 100) if vendor_total > 0 else 0
+                    
+                    vendor_stats.append({
+                        'Supplier': vendor,
+                        'Total Products': vendor_total,
+                        'With Tags': vendor_with_tags,
+                        'Coverage %': f"{vendor_coverage:.1f}%"
+                    })
+                
+                st.dataframe(pd.DataFrame(vendor_stats), use_container_width=True)
+            
+            # Most common tags analysis
+            with st.expander("🏷️ Tag Analysis", expanded=False):
+                all_tags_list = []
+                for tag_str in tags_column:
+                    if tag_str and str(tag_str).strip():
+                        all_tags_list.extend(str(tag_str).split(', '))
+                
+                if all_tags_list:
+                    tag_counts = pd.Series([tag.strip() for tag in all_tags_list if tag.strip()]).value_counts()
+                    
+                    col_a, col_b = st.columns(2)
+                    with col_a:
+                        st.write(f"**📈 Top 10 Most Common Tags:**")
+                        for tag, count in tag_counts.head(10).items():
+                            st.write(f"• **{tag}**: {count} products")
+                    
+                    with col_b:
+                        st.write(f"**📊 Tag Statistics:**")
+                        st.write(f"• Total unique tags: {len(tag_counts)}")
+                        st.write(f"• Average tags per product: {len(all_tags_list)/products_with_tags:.1f}")
+                        st.write(f"• Most used tag: **{tag_counts.index[0]}** ({tag_counts.iloc[0]} times)")
+                        
+                        # Show tags used only once
+                        single_use_tags = sum(1 for count in tag_counts if count == 1)
+                        st.write(f"• Single-use tags: {single_use_tags}")
+                else:
+                    st.info("No tags found in processed data")
+            
+            # Sample tags preview
+            st.subheader("� Sample Tagged Products")
+            if products_with_tags > 0:
+                sample_with_tags = processed_df[processed_df['Tags'].str.strip() != ''].head(5)
+                display_columns = ['Variant SKU', 'Title', 'Vendor', 'Tags']
+                display_columns = [col for col in display_columns if col in sample_with_tags.columns]
+                
+                # Normalize for display
+                display_df = normalize_dataframe_types(sample_with_tags[display_columns])
+                st.dataframe(display_df, use_container_width=True)
+            else:
+                st.info("No products with tags found. Configure tag generation in supplier mappings.")
+        else:
+            st.info("💡 **Next Steps:**\n1. Configure tag columns in supplier mappings (Map tab)\n2. Process files (Export tab)\n3. Return here to see tag analysis")
     
     st.markdown('</div>', unsafe_allow_html=True)
 
