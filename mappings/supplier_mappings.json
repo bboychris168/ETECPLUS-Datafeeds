@@ -1,5 +1,5 @@
 {
-  "compuworld": {
+  "Compuworld": {
     "_file_keyword": "compuworld",
     "Title": "Product Name",
     "Body (HTML)": "Short Description",
@@ -12,11 +12,11 @@
     "Google Shopping / MPN": "Manufacture Code",
     "Cost per item": "ExTax"
   },
-  "auscomp": {
+  "Auscomp": {
     "_file_keyword": "auscomp",
     "Title": "Item Description",
     "Body (HTML)": "Item Description",
-    "Vendor_custom": "Leaders Systems",
+    "Vendor_custom": "Auscomp",
     "Variant SKU": "Manufacturer ID",
     "Variant Inventory Tracker_custom": "shopify",
     "Variant Inventory Qty": "AvailableQty",
