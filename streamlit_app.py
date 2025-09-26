@@ -165,6 +165,11 @@ def load_supplier_config():
             return json.load(f)
     return {}
 
+def save_supplier_config(config):
+    """Save supplier download configuration"""
+    with open("supplier_config.json", 'w') as f:
+        json.dump(config, f, indent=4)
+
 def download_to_suppliers_folder(selected_suppliers, supplier_config):
     """Download files directly to suppliers folder"""
     # Create suppliers folder if it doesn't exist
@@ -603,9 +608,9 @@ if not shopify_configured:
 
 # Tabs
 if shopify_configured:
-    tab1, tab2, tab3, tab4 = st.tabs(["🏪 Shopify Template", "📁 Upload", "🔗 Map", "⚡ Export"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏪 Shopify Template", "📁 Upload", "🔗 Map", "⚡ Export", "💰 Quoting"])
 else:
-    tab1, tab2, tab3, tab4 = st.tabs(["🏪 Shopify Template", "📁 Upload (Disabled)", "🔗 Map (Disabled)", "⚡ Export (Disabled)"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏪 Shopify Template", "📁 Upload (Disabled)", "🔗 Map (Disabled)", "⚡ Export (Disabled)", "💰 Quoting"])
 
 # Shopify Template Tab
 with tab1:
@@ -778,6 +783,78 @@ with tab2:
                             st.warning("❓ Unknown")
             
             st.session_state.uploaded_files = uploaded_files
+        
+        st.divider()
+        
+        # Section 4: Supplier URL Management
+        st.markdown("### ⚙️ Manage Supplier URLs")
+        st.markdown("*Add, edit, or remove supplier download URLs*")
+        
+        supplier_config = load_supplier_config()
+        
+        with st.expander("🔧 Supplier Configuration", expanded=False):
+            # Add new supplier
+            st.markdown("**Add New Supplier:**")
+            col1, col2 = st.columns(2)
+            with col1:
+                new_supplier_key = st.text_input("Supplier Key (lowercase, no spaces)", help="e.g., 'new_supplier'")
+                new_supplier_name = st.text_input("Supplier Display Name", help="e.g., 'New Supplier'")
+            with col2:
+                new_supplier_url = st.text_input("Download URL", help="Full URL to the supplier's datafeed")
+                new_supplier_filename = st.text_input("Filename", help="e.g., 'new_supplier_datafeed.csv'")
+            
+            col_add, col_spacer = st.columns([1, 3])
+            with col_add:
+                if st.button("➕ Add Supplier", type="secondary"):
+                    if new_supplier_key and new_supplier_name and new_supplier_url and new_supplier_filename:
+                        supplier_config[new_supplier_key] = {
+                            "name": new_supplier_name,
+                            "url": new_supplier_url,
+                            "filename": new_supplier_filename,
+                            "file_type": "csv",
+                            "description": f"{new_supplier_name} product datafeed"
+                        }
+                        save_supplier_config(supplier_config)
+                        st.success(f"✅ Added {new_supplier_name} successfully!")
+                        st.rerun()
+                    else:
+                        st.error("❌ Please fill in all fields")
+            
+            # Edit existing suppliers
+            if supplier_config:
+                st.markdown("**Edit Existing Suppliers:**")
+                for key, config in supplier_config.items():
+                    with st.container():
+                        st.markdown(f"**{config['name']}** (`{key}`)")
+                        col_edit1, col_edit2, col_remove = st.columns([2, 2, 1])
+                        
+                        with col_edit1:
+                            new_name = st.text_input(f"Name###{key}", value=config['name'], key=f"name_{key}")
+                            new_url = st.text_input(f"URL###{key}", value=config['url'], key=f"url_{key}")
+                        
+                        with col_edit2:
+                            new_filename = st.text_input(f"Filename###{key}", value=config['filename'], key=f"filename_{key}")
+                            
+                            col_update, col_delete = st.columns(2)
+                            with col_update:
+                                if st.button(f"💾 Update", key=f"update_{key}", type="secondary"):
+                                    supplier_config[key].update({
+                                        "name": new_name,
+                                        "url": new_url,
+                                        "filename": new_filename
+                                    })
+                                    save_supplier_config(supplier_config)
+                                    st.success(f"✅ Updated {new_name}!")
+                                    st.rerun()
+                            
+                            with col_delete:
+                                if st.button(f"🗑️ Remove", key=f"delete_{key}", type="secondary"):
+                                    del supplier_config[key]
+                                    save_supplier_config(supplier_config)
+                                    st.success(f"✅ Removed supplier!")
+                                    st.rerun()
+                        
+                        st.divider()
         
         # Show current files status
         if 'uploaded_files' in st.session_state and st.session_state.uploaded_files:
@@ -1248,3 +1325,175 @@ if st.session_state.supplier_mappings:
                     st.write(f"🔗 {field} ← {value}")
 else:
     st.sidebar.info("No mappings created yet")
+
+# Quoting Tab
+with tab5:
+    st.markdown('<div class="step-box">', unsafe_allow_html=True)
+    st.header("💰 Product Quoting")
+    st.markdown("Search for products using variant SKUs and view product information with images.")
+    
+    # Initialize session state for quoting
+    if 'search_results' not in st.session_state:
+        st.session_state.search_results = []
+    
+    # Search section
+    st.markdown("### 🔍 Product Search")
+    
+    col_search, col_button = st.columns([3, 1])
+    with col_search:
+        search_input = st.text_input(
+            "Enter SKU/Product Code",
+            placeholder="e.g., ABC123, DEF456, GHI789",
+            help="Enter one or multiple SKUs separated by commas"
+        )
+    
+    with col_button:
+        st.markdown("<br>", unsafe_allow_html=True)  # Add spacing
+        search_button = st.button("🔍 Search Products", type="primary", use_container_width=True)
+    
+    # Bulk search option
+    st.markdown("**Bulk Search:**")
+    bulk_skus = st.text_area(
+        "Enter multiple SKUs (one per line)",
+        placeholder="ABC123\nDEF456\nGHI789",
+        height=100
+    )
+    
+    if st.button("🔍 Bulk Search", type="secondary"):
+        if bulk_skus:
+            search_input = bulk_skus.replace('\n', ',')
+            search_button = True
+    
+    # Perform search
+    if search_button and search_input and 'uploaded_files' in st.session_state:
+        search_terms = [term.strip().upper() for term in search_input.replace('\n', ',').split(',') if term.strip()]
+        
+        if search_terms:
+            st.markdown("### 📊 Search Results")
+            
+            # Search through all uploaded files
+            all_results = []
+            
+            for file in st.session_state.uploaded_files:
+                try:
+                    # Read the file
+                    file.seek(0)
+                    if file.name.endswith('.csv'):
+                        df = pd.read_csv(file)
+                    else:
+                        df = pd.read_excel(file)
+                    
+                    supplier = detect_supplier(file.name)
+                    
+                    # Search through all text columns for SKUs
+                    for search_term in search_terms:
+                        # Create a mask to search across all string columns
+                        mask = pd.Series([False] * len(df))
+                        
+                        for col in df.columns:
+                            if df[col].dtype == 'object':  # String columns
+                                mask |= df[col].astype(str).str.upper().str.contains(search_term, na=False)
+                        
+                        # Get matching rows
+                        matches = df[mask].copy()
+                        
+                        if not matches.empty:
+                            matches['supplier'] = supplier or 'Unknown'
+                            matches['search_term'] = search_term
+                            matches['file_name'] = file.name
+                            all_results.append(matches)
+                
+                except Exception as e:
+                    st.error(f"Error searching in {file.name}: {str(e)}")
+            
+            # Display results
+            if all_results:
+                combined_results = pd.concat(all_results, ignore_index=True)
+                st.session_state.search_results = combined_results
+                
+                st.success(f"✅ Found {len(combined_results)} matching products")
+                
+                # Group results by search term
+                for search_term in search_terms:
+                    term_results = combined_results[combined_results['search_term'] == search_term]
+                    
+                    if not term_results.empty:
+                        st.markdown(f"#### 🔍 Results for: **{search_term}**")
+                        
+                        for idx, row in term_results.iterrows():
+                            with st.expander(f"📦 {row.get('supplier', 'Unknown')} - {search_term}", expanded=True):
+                                
+                                # Create columns for product info and image
+                                col_info, col_image = st.columns([2, 1])
+                                
+                                with col_info:
+                                    # Display key product information
+                                    important_fields = ['name', 'title', 'description', 'price', 'cost', 'stock', 'qty', 'quantity', 'brand', 'category']
+                                    
+                                    for col in row.index:
+                                        if pd.notna(row[col]) and row[col] != '':
+                                            col_lower = str(col).lower()
+                                            
+                                            # Highlight important fields
+                                            if any(field in col_lower for field in important_fields):
+                                                st.markdown(f"**{col}:** {row[col]}")
+                                            else:
+                                                st.write(f"{col}: {row[col]}")
+                                
+                                with col_image:
+                                    # Look for image URL fields
+                                    image_fields = ['image', 'img', 'photo', 'picture', 'image_url', 'img_url', 'photo_url']
+                                    image_found = False
+                                    
+                                    for col in row.index:
+                                        col_lower = str(col).lower()
+                                        if any(img_field in col_lower for img_field in image_fields):
+                                            image_url = row[col]
+                                            if pd.notna(image_url) and str(image_url).startswith(('http', 'https')):
+                                                try:
+                                                    st.image(image_url, caption=f"Product Image", width=200)
+                                                    image_found = True
+                                                    break
+                                                except:
+                                                    pass
+                                    
+                                    if not image_found:
+                                        st.info("📷 No image available")
+                                
+                                # Show source file info
+                                st.markdown(f"**Source:** {row['file_name']} ({row['supplier']})")
+                    else:
+                        st.warning(f"❌ No results found for: {search_term}")
+            else:
+                st.warning("❌ No matching products found in uploaded files")
+        else:
+            st.error("❌ Please enter at least one SKU to search")
+    
+    elif search_button and not search_input:
+        st.error("❌ Please enter a SKU to search")
+    
+    elif search_button and 'uploaded_files' not in st.session_state:
+        st.error("❌ Please upload supplier files first in the Upload tab")
+    
+    # Display previous search results if available
+    if hasattr(st.session_state, 'search_results') and len(st.session_state.search_results) > 0:
+        st.markdown("---")
+        st.markdown("### 📋 Export Search Results")
+        
+        col_export, col_clear = st.columns([1, 1])
+        with col_export:
+            if st.button("📥 Export to CSV", type="secondary"):
+                csv_data = st.session_state.search_results.to_csv(index=False)
+                st.download_button(
+                    label="⬇️ Download CSV",
+                    data=csv_data,
+                    file_name=f"product_search_results_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv"
+                )
+        
+        with col_clear:
+            if st.button("🗑️ Clear Results", type="secondary"):
+                st.session_state.search_results = []
+                st.rerun()
+    
+    st.markdown('</div>', unsafe_allow_html=True)
