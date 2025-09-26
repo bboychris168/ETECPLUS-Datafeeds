@@ -29,12 +29,11 @@
     "Variant Image": "Item URL",
     "Cost per item": "Price"
   },
-  "Leaders": {
-    "_file_keyword": "leaders",
+  "Leader": {
+    "_file_keyword": "leader",
     "Title": "SHORT DESCRIPTION",
     "Body (HTML)": "LONG DESCRIPTION",
     "Vendor_custom": "Leaders",
-    "Tags": "CATEGORY NAME,SUBCATEGORY NAME,MANUFACTURER",
     "Variant SKU": "MANUFACTURER SKU",
     "Variant Inventory Tracker_custom": "shopify",
     "Variant Inventory Qty": "AT",

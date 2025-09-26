@@ -3,6 +3,10 @@ import pandas as pd
 import json
 import os
 import re
+import requests
+import io
+from datetime import datetime
+import time
 
 # Configure page
 st.set_page_config(
@@ -115,6 +119,73 @@ def save_mappings(mappings):
     with open("mappings/supplier_mappings.json", 'w') as f:
         json.dump(mappings, f, indent=2)
 
+def load_supplier_config():
+    """Load supplier download configuration"""
+    if os.path.exists("supplier_config.json"):
+        with open("supplier_config.json", 'r') as f:
+            return json.load(f)
+    return {}
+
+def download_to_suppliers_folder(selected_suppliers, supplier_config):
+    """Download files directly to suppliers folder"""
+    # Create suppliers folder if it doesn't exist
+    os.makedirs("suppliers", exist_ok=True)
+    
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    for i, supplier_key in enumerate(selected_suppliers):
+        config = supplier_config[supplier_key]
+        status_text.text(f"Downloading {config['name']}...")
+        
+        try:
+            url = config['url']
+            filename = config['filename']
+            file_path = os.path.join("suppliers", filename)
+            
+            # Add user agent to avoid blocking
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+            
+            response = requests.get(url, headers=headers, timeout=30)
+            response.raise_for_status()
+            
+            # Save to file
+            with open(file_path, 'wb') as f:
+                f.write(response.content)
+            
+            st.success(f"✅ {config['name']}: Downloaded to {file_path}")
+            
+        except requests.exceptions.RequestException as e:
+            st.error(f"❌ {config['name']}: Download failed - {str(e)}")
+        except Exception as e:
+            st.error(f"❌ {config['name']}: Error - {str(e)}")
+        
+        # Update progress
+        progress_bar.progress((i + 1) / len(selected_suppliers))
+    
+    status_text.text("Download complete!")
+
+def load_files_from_suppliers_folder():
+    """Load available files from suppliers folder"""
+    suppliers_folder = "suppliers"
+    if not os.path.exists(suppliers_folder):
+        return []
+    
+    files = []
+    for filename in os.listdir(suppliers_folder):
+        if filename.lower().endswith(('.csv', '.xlsx', '.xls')):
+            file_path = os.path.join(suppliers_folder, filename)
+            # Get file modification time for display
+            mod_time = datetime.fromtimestamp(os.path.getmtime(file_path))
+            display_name = f"{filename} (Updated: {mod_time.strftime('%Y-%m-%d %H:%M')})"
+            files.append((file_path, display_name))
+    
+    return files
+
+
+
 def extract_quantity(qty_str):
     """Extract quantity from string"""
     if pd.isna(qty_str) or qty_str == '':
@@ -225,6 +296,7 @@ def detect_supplier(filename):
     patterns = {
         'auscomp': ['auscomp'],
         'compuworld': ['compuworld'],
+        'leader_systems': ['leader', 'leadersystem'],
         'dicker': ['dicker'],
         'synnex': ['synnex'],
         'ingram': ['ingram'],
@@ -561,11 +633,57 @@ with tab2:
     st.markdown('<div class="step-box">', unsafe_allow_html=True)
     
     if not shopify_configured:
-        st.header("📁 Upload Files (Disabled)")
+        st.header("📁 Upload Supplier Files (Disabled)")
         st.warning("⚠️ Please configure your Shopify template first in the 'Shopify Template' tab.")
     else:
         st.header("📁 Upload Supplier Files")
         
+        # Auto-download section
+        supplier_config = load_supplier_config()
+        if supplier_config:
+            st.subheader("🔄 Download Latest Supplier Files")
+            
+            col1, col2, col3 = st.columns(3)
+            supplier_keys = list(supplier_config.keys())
+            
+            selected_suppliers = []
+            for i, supplier_key in enumerate(supplier_keys):
+                config = supplier_config[supplier_key]
+                with [col1, col2, col3][i % 3]:
+                    if st.checkbox(f"🏢 {config['name']}", key=f"download_{supplier_key}"):
+                        selected_suppliers.append(supplier_key)
+            
+            if selected_suppliers and st.button("� Download to Suppliers Folder", type="primary"):
+                download_to_suppliers_folder(selected_suppliers, supplier_config)
+            
+            st.divider()
+        
+        # Check for files in suppliers folder
+        supplier_files = load_files_from_suppliers_folder()
+        
+        if supplier_files:
+            st.subheader("📂 Files from Suppliers Folder")
+            file_options = []
+            for file_path, display_name in supplier_files:
+                file_options.append((file_path, display_name))
+            
+            if st.button("📋 Load Files from Suppliers Folder"):
+                loaded_files = []
+                for file_path, display_name in file_options:
+                    try:
+                        with open(file_path, 'rb') as f:
+                            file_content = io.BytesIO(f.read())
+                            file_content.name = os.path.basename(file_path)
+                            loaded_files.append(file_content)
+                    except Exception as e:
+                        st.error(f"Error loading {display_name}: {str(e)}")
+                
+                if loaded_files:
+                    st.session_state.uploaded_files = loaded_files
+                    st.success(f"✅ Loaded {len(loaded_files)} files from suppliers folder")
+        
+        # Manual upload section
+        st.subheader("📁 Manual File Upload")
         uploaded_files = st.file_uploader(
             "Upload CSV or Excel files from your suppliers",
             type=['csv', 'xlsx', 'xls'],
@@ -579,6 +697,14 @@ with tab2:
                 supplier = detect_supplier(file.name)
                 st.write(f"📄 {file.name} - {supplier or 'Unknown supplier'}")
             st.session_state.uploaded_files = uploaded_files
+        
+        # Show current files status
+        if 'uploaded_files' in st.session_state and st.session_state.uploaded_files:
+            st.divider()
+            st.write("**📋 Current Files Ready for Processing:**")
+            for file in st.session_state.uploaded_files:
+                supplier = detect_supplier(file.name)
+                st.write(f"✅ {file.name} - {supplier or 'Unknown supplier'}")
     
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -594,15 +720,21 @@ with tab3:
         st.warning("⚠️ Please upload supplier files first.")
     else:
         st.header("🔗 Map Supplier Columns to Shopify")
+        
         # Select file
         file_names = [f.name for f in st.session_state.uploaded_files]
         selected_file = st.selectbox("Select file:", file_names)
         
         if selected_file:
-            file = next(f for f in st.session_state.uploaded_files if f.name == selected_file)
-            supplier = st.text_input("Supplier name:", detect_supplier(selected_file) or "")
+            try:
+                file = next(f for f in st.session_state.uploaded_files if f.name == selected_file)
+                supplier = st.text_input("Supplier name:", detect_supplier(selected_file) or "")
+            except StopIteration:
+                st.error(f"Could not find file {selected_file} in uploaded files")
+                file = None
+                supplier = None
             
-            if supplier:
+            if supplier and file is not None:
                 df = read_file(file)
                 if df is not None:
                     supplier_columns = [""] + list(df.columns)
@@ -774,6 +906,8 @@ with tab3:
                         column_mappings = sum(1 for k, v in clean_mapping.items() if not k.endswith('_custom') and not k == '_file_keyword' and v)
                         custom_mappings = sum(1 for k, v in clean_mapping.items() if k.endswith('_custom') and v)
                         st.info(f"📊 Saved {column_mappings} column mappings and {custom_mappings} custom text fields")
+                else:
+                    st.error("❌ Could not read the selected file. Please check the file format or try re-downloading.")
     
     st.markdown('</div>', unsafe_allow_html=True)
 

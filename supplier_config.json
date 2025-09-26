@@ -1,0 +1,23 @@
+{
+    "leader_systems": {
+        "name": "Leader Systems",
+        "url": "https://partner.leadersystems.com.au/WSDataFeed.asmx/DownLoad?CustomerCode=U2FsdGVkX1%2Fse9cKe32ojguzqt0OrAIt5qZcskicff5spFJcnI%2FwYJRhIctnZUAg&WithHeading=true&WithLongDescription=true&DataType=7",
+        "filename": "leader_systems_datafeed.csv",
+        "file_type": "csv",
+        "description": "Leader Systems product datafeed"
+    },
+    "auscomp": {
+        "name": "AusComp",
+        "url": "https://api.auscomp.au/downloadfeed?token=07c469870bb8ca640a3c404a5d0c91f5&filetype=csv",
+        "filename": "auscomp_datafeed.csv",
+        "file_type": "csv", 
+        "description": "AusComp product datafeed"
+    },
+    "compuworld": {
+        "name": "CompuWorld",
+        "url": "https://www.compuworld.com.au/products/exportproductpricelist?email=chris.168@live.com.au&id=NjUxNDUzMTY=",
+        "filename": "compuworld_datafeed.csv",
+        "file_type": "csv",
+        "description": "CompuWorld product price list"
+    }
+}
