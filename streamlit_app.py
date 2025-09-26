@@ -606,6 +606,40 @@ else:
 if not shopify_configured:
     st.warning("⚠️ Please upload your Shopify CSV template first to configure the column headers.")
 
+# Help Section
+with st.expander("📖 How to Use This Application", expanded=False):
+    st.markdown("""
+    ### 🚀 **Quick Start Guide**
+    
+    **Step 1: Setup Shopify Template** 🏪
+    - Upload your Shopify CSV template file
+    - This defines the columns for your final export
+    
+    **Step 2: Get Supplier Data** 📁
+    - Download data automatically from configured suppliers, OR
+    - Upload supplier files manually
+    
+    **Step 3: Map Your Data** 🔗
+    - Match supplier columns to Shopify fields
+    - Add custom text where needed
+    - Generate tags from multiple columns
+    
+    **Step 4: Export Products** ⚡
+    - Review and export your mapped data
+    - Download the final Shopify-ready CSV
+    
+    **Step 5: Quote Products** 💰
+    - Generate quote database from your mappings
+    - Search products by SKU
+    - Compare prices across all suppliers
+    
+    ---
+    💡 **Tips:**
+    - Complete steps in order for best results
+    - Use the supplier URL manager to add new suppliers
+    - The quoting system shows ALL supplier options (no duplicates removed)
+    """)
+
 # Tabs
 if shopify_configured:
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏪 Shopify Template", "📁 Upload", "🔗 Map", "⚡ Export", "💰 Quoting"])
