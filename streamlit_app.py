@@ -1364,47 +1364,160 @@ with tab5:
             search_input = bulk_skus.replace('\n', ',')
             search_button = True
     
+    # Auto-generate export data for quoting
+    st.markdown("### � Automatic Data Loading")
+    
+    # Check if we have mapped suppliers ready for export
+    has_mapped_suppliers = bool(st.session_state.supplier_mappings)
+    shopify_columns = load_shopify_template()
+    
+    if has_mapped_suppliers and shopify_columns:
+        st.success("✅ Supplier mappings detected - automatically generating quote data")
+        
+        # Create quoting folder
+        os.makedirs("quoting", exist_ok=True)
+        quoting_file_path = "quoting/export_data_for_quoting.csv"
+        
+        # Auto-generate the export CSV for quoting
+        col_generate, col_status = st.columns([1, 2])
+        with col_generate:
+            if st.button("🔄 Generate Quote Data", type="primary"):
+                try:
+                    # Create quote data with ALL supplier entries (no deduplication)
+                    combined_data = []
+                    
+                    if 'uploaded_files' in st.session_state and st.session_state.uploaded_files:
+                        for file in st.session_state.uploaded_files:
+                            supplier = detect_supplier(file.name)
+                            if supplier and supplier in st.session_state.supplier_mappings:
+                                mapping = st.session_state.supplier_mappings[supplier]
+                                
+                                # Read supplier file
+                                file.seek(0)
+                                if file.name.endswith('.csv'):
+                                    supplier_df = pd.read_csv(file)
+                                else:
+                                    supplier_df = pd.read_excel(file)
+                                
+                                # Apply mappings to create Shopify format
+                                export_data = pd.DataFrame()
+                                for shopify_col in shopify_columns:
+                                    if shopify_col in mapping:
+                                        mapped_col = mapping[shopify_col]
+                                        if mapped_col and mapped_col in supplier_df.columns:
+                                            export_data[shopify_col] = supplier_df[mapped_col]
+                                        elif f"{shopify_col}_custom" in mapping and mapping[f"{shopify_col}_custom"]:
+                                            export_data[shopify_col] = mapping[f"{shopify_col}_custom"]
+                                        else:
+                                            export_data[shopify_col] = ""
+                                    else:
+                                        export_data[shopify_col] = ""
+                                
+                                # Add supplier identifier and include ALL entries
+                                if not export_data.empty:
+                                    export_data['_Supplier'] = supplier
+                                    combined_data.append(export_data)
+                    
+                    if combined_data:
+                        # Combine ALL supplier data (NO duplicate removal)
+                        quote_df = pd.concat(combined_data, ignore_index=True)
+                        
+                        # Save to quoting folder
+                        quote_df.to_csv(quoting_file_path, index=False)
+                        st.session_state.quoting_data_generated = True
+                        
+                        # Count by supplier
+                        supplier_counts = quote_df['_Supplier'].value_counts()
+                        count_text = ", ".join([f"{supplier}: {count}" for supplier, count in supplier_counts.items()])
+                        st.success(f"✅ Generated quote data with {len(quote_df)} products ({count_text})")
+                        st.rerun()
+                    else:
+                        st.error("❌ No data to export. Please check your supplier files and mappings.")
+                        
+                except Exception as e:
+                    st.error(f"❌ Error generating quote data: {str(e)}")
+        
+        with col_status:
+            # Check if quoting data exists
+            if os.path.exists(quoting_file_path):
+                file_stats = os.stat(quoting_file_path)
+                file_size = file_stats.st_size / 1024  # KB
+                modified_time = pd.Timestamp.fromtimestamp(file_stats.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+                st.info(f"📄 Quote data available: {file_size:.1f}KB (Updated: {modified_time})")
+                exported_csv = quoting_file_path  # Use the auto-generated file
+                
+                # Show auto-refresh option
+                if st.button("🔄 Refresh Data", type="secondary", help="Regenerate quote data with latest mappings"):
+                    st.session_state.quoting_data_generated = False  # Force regeneration
+                    st.rerun()
+            else:
+                st.warning("⚠️ No quote data generated yet.")
+                
+                st.info("💡 Click 'Generate Quote Data' to create searchable product database")
+                
+                exported_csv = None
+    else:
+        st.warning("⚠️ No supplier mappings found")
+        st.info("💡 Please go to the Upload and Map tabs to set up your supplier data first")
+        
+        # Show helpful workflow
+        with st.expander("📋 Setup Workflow", expanded=True):
+            st.markdown("""
+            **To use the quoting system:**
+            1. 🏪 **Shopify Template**: Upload your Shopify CSV template
+            2. 📁 **Upload**: Upload supplier data files  
+            3. 🔗 **Map**: Map supplier columns to Shopify fields
+            4. 💰 **Quoting**: Return here to search products and find best prices
+            """)
+        
+        exported_csv = None
+    
     # Perform search
-    if search_button and search_input and 'uploaded_files' in st.session_state:
+    if search_button and search_input and exported_csv is not None:
         search_terms = [term.strip().upper() for term in search_input.replace('\n', ',').split(',') if term.strip()]
         
         if search_terms:
             st.markdown("### 📊 Search Results")
             
-            # Search through all uploaded files
+            # Search through the exported CSV file
             all_results = []
             
-            for file in st.session_state.uploaded_files:
-                try:
-                    # Read the file
-                    file.seek(0)
-                    if file.name.endswith('.csv'):
-                        df = pd.read_csv(file)
-                    else:
-                        df = pd.read_excel(file)
-                    
-                    supplier = detect_supplier(file.name)
-                    
-                    # Search through all text columns for SKUs
-                    for search_term in search_terms:
-                        # Create a mask to search across all string columns
-                        mask = pd.Series([False] * len(df))
-                        
-                        for col in df.columns:
-                            if df[col].dtype == 'object':  # String columns
-                                mask |= df[col].astype(str).str.upper().str.contains(search_term, na=False)
-                        
-                        # Get matching rows
-                        matches = df[mask].copy()
-                        
-                        if not matches.empty:
-                            matches['supplier'] = supplier or 'Unknown'
-                            matches['search_term'] = search_term
-                            matches['file_name'] = file.name
-                            all_results.append(matches)
+            try:
+                # Read the exported CSV file (either file path or uploaded file)
+                if isinstance(exported_csv, str):
+                    # It's a file path
+                    df = pd.read_csv(exported_csv)
+                else:
+                    # It's an uploaded file object
+                    exported_csv.seek(0)
+                    df = pd.read_csv(exported_csv)
                 
-                except Exception as e:
-                    st.error(f"Error searching in {file.name}: {str(e)}")
+                st.write(f"📄 Loaded {len(df)} products from quote data")
+                
+                # Search for SKUs in the Variant SKU column primarily, but also other columns as fallback
+                for search_term in search_terms:
+                    # Create a mask to search across relevant columns
+                    mask = pd.Series([False] * len(df))
+                    
+                    # Primary search in Variant SKU column
+                    if 'Variant SKU' in df.columns:
+                        mask |= df['Variant SKU'].astype(str).str.upper().str.contains(search_term, na=False)
+                    
+                    # Fallback search in other text columns
+                    for col in df.columns:
+                        if df[col].dtype == 'object' and col not in ['Image Src', 'Body (HTML)', 'SEO Description']:  # Skip large text fields
+                            mask |= df[col].astype(str).str.upper().str.contains(search_term, na=False)
+                    
+                    # Get matching rows
+                    matches = df[mask].copy()
+                    
+                    if not matches.empty:
+                        matches['search_term'] = search_term
+                        all_results.append(matches)
+                
+            except Exception as e:
+                st.error(f"Error reading exported CSV: {str(e)}")
+                all_results = []
             
             # Display results
             if all_results:
@@ -1413,31 +1526,174 @@ with tab5:
                 
                 st.success(f"✅ Found {len(combined_results)} matching products")
                 
-                # Group results by search term
+                # Find and display lowest cost product
+                # Look for Shopify cost columns first, then fallback to generic terms
+                shopify_cost_fields = ['Cost per item', 'Variant Price']
+                generic_cost_fields = ['cost', 'price', 'wholesale', 'buy', 'purchase', 'dealer', 'trade', 'net']
+                
+                lowest_cost_product = None
+                lowest_cost_value = float('inf')
+                
+                # Show quick stats
+                total_suppliers = len(combined_results['_Supplier'].unique()) if '_Supplier' in combined_results.columns else 1
+                st.info(f"📊 Searching {len(combined_results)} products from {total_suppliers} supplier(s)")
+                
+                for idx, row in combined_results.iterrows():
+                    # Prioritize Shopify cost columns first
+                    for col in row.index:
+                        if col in shopify_cost_fields or any(cost_field in col.lower() for cost_field in generic_cost_fields):
+                            try:
+                                # Clean and convert price value
+                                raw_value = row[col]
+                                if pd.isna(raw_value) or raw_value == '':
+                                    continue
+                                    
+                                price_str = str(raw_value).replace('$', '').replace(',', '').replace(' ', '').replace('AUD', '').replace('USD', '').strip()
+                                
+                                if price_str and price_str.lower() not in ['nan', 'none', '', 'null', '0', '0.0', '0.00']:
+                                    price_value = float(price_str)
+                                    if price_value > 0:
+                                        # Prioritize "Cost per item" over other price fields
+                                        if col == 'Cost per item':
+                                            if price_value < lowest_cost_value:
+                                                lowest_cost_value = price_value
+                                                lowest_cost_product = row.copy()
+                                                lowest_cost_product['_cost_field'] = col
+                                                lowest_cost_product['_cost_value'] = price_value
+                                        elif lowest_cost_product is None or lowest_cost_product.get('_cost_field') != 'Cost per item':
+                                            # Only use other price fields if no "Cost per item" found
+                                            if price_value < lowest_cost_value:
+                                                lowest_cost_value = price_value
+                                                lowest_cost_product = row.copy()
+                                                lowest_cost_product['_cost_field'] = col
+                                                lowest_cost_product['_cost_value'] = price_value
+                            except (ValueError, TypeError):
+                                continue
+                
+                # Show cost analysis summary if lowest cost found
+                if lowest_cost_product is not None:
+                    cost_field = lowest_cost_product.get('_cost_field', 'Cost per item')
+                    st.info(f"💰 Best price found in '{cost_field}' column")
+                
+                # Display lowest cost product at the top
+                if lowest_cost_product is not None:
+                    st.markdown("### 🏆 **Best Price Found**")
+                    st.markdown(f"*Lowest cost: ${lowest_cost_product['_cost_value']:.2f}*")
+                    
+                    with st.container():
+                        # Add a special styling for the best price container
+                        st.markdown("""
+                        <div style="border: 2px solid #28a745; border-radius: 10px; padding: 15px; margin: 10px 0; background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);">
+                        """, unsafe_allow_html=True)
+                        
+                        col_info, col_image = st.columns([2, 1])
+                        
+                        with col_info:
+                            st.markdown(f"**🏷️ Best Price: ${lowest_cost_product['_cost_value']:.2f}** ({lowest_cost_product['_cost_field']})")
+                            st.markdown(f"**📦 Supplier:** {lowest_cost_product.get('supplier', 'Unknown')}")
+                            st.markdown(f"**🔍 Search Term:** {lowest_cost_product.get('search_term', 'N/A')}")
+                            
+                            # Display key Shopify product information
+                            shopify_important_fields = ['Title', 'Vendor', 'Type', 'Variant SKU', 'Variant Price', 'Cost per item', 'Variant Compare At Price', 'Variant Inventory Qty']
+                            
+                            # Show key fields first
+                            for field in shopify_important_fields:
+                                if field in lowest_cost_product.index and pd.notna(lowest_cost_product[field]) and lowest_cost_product[field] != '':
+                                    st.markdown(f"**{field}:** {lowest_cost_product[field]}")
+                            
+                            # Show other relevant fields
+                            other_fields = ['Tags', 'Product Category', 'Variant Barcode', 'Handle']
+                            for field in other_fields:
+                                if field in lowest_cost_product.index and pd.notna(lowest_cost_product[field]) and lowest_cost_product[field] != '':
+                                    st.write(f"{field}: {lowest_cost_product[field]}")
+                        
+                        with col_image:
+                            # Look for Shopify image fields
+                            shopify_image_fields = ['Image Src', 'Variant Image']
+                            generic_image_fields = ['image', 'img', 'photo', 'picture', 'image_url', 'img_url', 'photo_url']
+                            image_found = False
+                            
+                            # Try Shopify image fields first
+                            for field in shopify_image_fields:
+                                if field in lowest_cost_product.index and pd.notna(lowest_cost_product[field]):
+                                    image_url = lowest_cost_product[field]
+                                    if str(image_url).startswith(('http', 'https')):
+                                        try:
+                                            st.image(image_url, caption=f"Product Image", width=200)
+                                            image_found = True
+                                            break
+                                        except:
+                                            pass
+                            
+                            # Fallback to generic image fields
+                            if not image_found:
+                                for col in lowest_cost_product.index:
+                                    col_lower = str(col).lower()
+                                    if any(img_field in col_lower for img_field in generic_image_fields):
+                                        image_url = lowest_cost_product[col]
+                                        if pd.notna(image_url) and str(image_url).startswith(('http', 'https')):
+                                            try:
+                                                st.image(image_url, caption=f"Product Image", width=200)
+                                                image_found = True
+                                                break
+                                            except:
+                                                pass
+                            
+                            if not image_found:
+                                st.info("📷 No image available")
+                        
+                        # Show source info
+                        supplier = lowest_cost_product.get('_Supplier', 'Unknown')
+                        vendor = lowest_cost_product.get('Vendor', 'Unknown Vendor')
+                        st.markdown(f"**Source:** {supplier} (Vendor: {vendor})")
+                        
+                        st.markdown("</div>", unsafe_allow_html=True)
+                    
+                    st.markdown("---")
+                    st.markdown("### 📋 All Search Results")
+                else:
+                    st.warning("💰 No cost/price information found in the search results")
+                    st.info("🔍 Looking for columns containing: cost, price, wholesale, buy, purchase, dealer, trade, net")
+                
+                # Group results by search term and show supplier comparison
                 for search_term in search_terms:
                     term_results = combined_results[combined_results['search_term'] == search_term]
                     
                     if not term_results.empty:
-                        st.markdown(f"#### 🔍 Results for: **{search_term}**")
+                        st.markdown(f"#### 🔍 Results for: **{search_term}** ({len(term_results)} supplier options)")
+                        
+                        # Sort by cost for better comparison
+                        if 'Cost per item' in term_results.columns:
+                            # Convert cost column to numeric for proper sorting
+                            term_results['_cost_numeric'] = pd.to_numeric(
+                                term_results['Cost per item'].astype(str).str.replace('[$,]', '', regex=True), 
+                                errors='coerce'
+                            )
+                            term_results = term_results.sort_values('_cost_numeric', na_position='last')
                         
                         for idx, row in term_results.iterrows():
-                            with st.expander(f"📦 {row.get('supplier', 'Unknown')} - {search_term}", expanded=True):
+                            supplier = row.get('_Supplier', 'Unknown')
+                            cost = row.get('Cost per item', 'N/A')
+                            cost_display = f"${float(cost):.2f}" if pd.notna(cost) and cost != '' else "No price"
+                            
+                            with st.expander(f"📦 {supplier} - {cost_display}", expanded=False):
                                 
                                 # Create columns for product info and image
                                 col_info, col_image = st.columns([2, 1])
                                 
                                 with col_info:
-                                    # Display key product information
-                                    important_fields = ['name', 'title', 'description', 'price', 'cost', 'stock', 'qty', 'quantity', 'brand', 'category']
+                                    # Display key Shopify product information
+                                    shopify_key_fields = ['Title', 'Vendor', 'Type', 'Variant SKU', 'Variant Price', 'Cost per item', 'Variant Compare At Price', 'Variant Inventory Qty']
                                     
+                                    # Show key fields first
+                                    for field in shopify_key_fields:
+                                        if field in row.index and pd.notna(row[field]) and row[field] != '':
+                                            st.markdown(f"**{field}:** {row[field]}")
+                                    
+                                    # Show other fields
                                     for col in row.index:
-                                        if pd.notna(row[col]) and row[col] != '':
-                                            col_lower = str(col).lower()
-                                            
-                                            # Highlight important fields
-                                            if any(field in col_lower for field in important_fields):
-                                                st.markdown(f"**{col}:** {row[col]}")
-                                            else:
+                                        if col not in shopify_key_fields and col != 'search_term' and pd.notna(row[col]) and row[col] != '':
+                                            if col in ['Tags', 'Product Category', 'Handle', 'Variant Barcode']:
                                                 st.write(f"{col}: {row[col]}")
                                 
                                 with col_image:
@@ -1460,20 +1716,23 @@ with tab5:
                                     if not image_found:
                                         st.info("📷 No image available")
                                 
-                                # Show source file info
-                                st.markdown(f"**Source:** {row['file_name']} ({row['supplier']})")
+                                # Show source info
+                                supplier = row.get('_Supplier', 'Unknown')
+                                vendor = row.get('Vendor', 'Unknown Vendor')
+                                st.markdown(f"**Source:** {supplier} (Vendor: {vendor})")
                     else:
                         st.warning(f"❌ No results found for: {search_term}")
             else:
-                st.warning("❌ No matching products found in uploaded files")
+                st.warning("❌ No matching products found in quote data")
         else:
             st.error("❌ Please enter at least one SKU to search")
     
     elif search_button and not search_input:
         st.error("❌ Please enter a SKU to search")
     
-    elif search_button and 'uploaded_files' not in st.session_state:
-        st.error("❌ Please upload supplier files first in the Upload tab")
+    elif search_button and exported_csv is None:
+        st.error("❌ Please upload your exported CSV file first")
+        st.info("💡 Export your mapped data from the Export tab, then upload the CSV file here")
     
     # Display previous search results if available
     if hasattr(st.session_state, 'search_results') and len(st.session_state.search_results) > 0:
