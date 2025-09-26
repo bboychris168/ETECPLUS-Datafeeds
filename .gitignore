@@ -15,6 +15,7 @@ openai_config.json
 .env.development
 .env.staging
 
+<<<<<<< HEAD
 # API Keys and Sensitive Configuration Files
 *api_key*
 *api-key*
@@ -30,6 +31,8 @@ supplier_config*.json
 api_config*.json
 auth_config*.json
 
+=======
+>>>>>>> 125de81b5b6915305773cb3e62c86f859697863c
 # Data files - CSV/Excel containing supplier data
 *.csv
 *.xlsx
@@ -40,18 +43,24 @@ auth_config*.json
 # Supplier data folders (contain sensitive pricing/product data)
 suppliers/
 quoting/
+<<<<<<< HEAD
 downloads/
 data/
 exports/
+=======
+>>>>>>> 125de81b5b6915305773cb3e62c86f859697863c
 
 # Allow mappings folder but exclude any CSV/Excel files within it
 !mappings/
 mappings/*.csv
 mappings/*.xlsx
 mappings/*.xls
+<<<<<<< HEAD
 mappings/*secret*
 mappings/*api*
 mappings/*token*
+=======
+>>>>>>> 125de81b5b6915305773cb3e62c86f859697863c
 
 # Generated export files
 shopify_products.csv
