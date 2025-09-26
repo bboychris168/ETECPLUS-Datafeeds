@@ -57,6 +57,45 @@ st.markdown("""
         background: #ffc107;
         color: black;
     }
+    
+    /* Modern Upload Section Styling */
+    .supplier-card {
+        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        border: 1px solid #e1e8ed;
+        border-radius: 12px;
+        padding: 1.2rem;
+        margin: 0.8rem 0;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        transition: all 0.3s ease;
+    }
+    
+    .supplier-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+    }
+    
+    .upload-section {
+        background: #ffffff;
+        border: 2px dashed #d1d5db;
+        border-radius: 8px;
+        padding: 2rem;
+        text-align: center;
+        margin: 1rem 0;
+        transition: all 0.3s ease;
+    }
+    
+    .upload-section:hover {
+        border-color: #667eea;
+        background: #f8faff;
+    }
+    
+    .file-list-item {
+        background: #f8f9fa;
+        border-radius: 6px;
+        padding: 0.5rem 1rem;
+        margin: 0.3rem 0;
+        border-left: 3px solid #667eea;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -636,12 +675,16 @@ with tab2:
         st.header("📁 Upload Supplier Files (Disabled)")
         st.warning("⚠️ Please configure your Shopify template first in the 'Shopify Template' tab.")
     else:
-        st.header("📁 Upload Supplier Files")
+        st.header("📁 Get Supplier Data")
+        st.markdown("*Choose how to get your supplier data files for processing*")
         
-        # Auto-download section
+        # Create modern card-style sections
         supplier_config = load_supplier_config()
+        
+        # Section 1: Auto-Download from APIs
         if supplier_config:
-            st.subheader("🔄 Download Latest Supplier Files")
+            st.markdown("### 🌐 Download from Supplier APIs")
+            st.markdown("*Get the latest data directly from your suppliers*")
             
             col1, col2, col3 = st.columns(3)
             supplier_keys = list(supplier_config.keys())
@@ -650,7 +693,7 @@ with tab2:
             for i, supplier_key in enumerate(supplier_keys):
                 config = supplier_config[supplier_key]
                 with [col1, col2, col3][i % 3]:
-                    if st.checkbox(f"🏢 {config['name']}", key=f"download_{supplier_key}"):
+                    if st.checkbox(f"Select {config['name']}", key=f"download_{supplier_key}"):
                         selected_suppliers.append(supplier_key)
             
             if selected_suppliers and st.button("� Download to Suppliers Folder", type="primary"):
@@ -658,44 +701,82 @@ with tab2:
             
             st.divider()
         
-        # Check for files in suppliers folder
+        # Section 2: Load from Downloaded Files
         supplier_files = load_files_from_suppliers_folder()
         
         if supplier_files:
-            st.subheader("📂 Files from Suppliers Folder")
-            file_options = []
-            for file_path, display_name in supplier_files:
-                file_options.append((file_path, display_name))
+            st.markdown("### 📂 Load Downloaded Files")
+            st.markdown("*Use previously downloaded files from the suppliers folder*")
             
-            if st.button("📋 Load Files from Suppliers Folder"):
-                loaded_files = []
-                for file_path, display_name in file_options:
-                    try:
-                        with open(file_path, 'rb') as f:
-                            file_content = io.BytesIO(f.read())
-                            file_content.name = os.path.basename(file_path)
-                            loaded_files.append(file_content)
-                    except Exception as e:
-                        st.error(f"Error loading {display_name}: {str(e)}")
+            # Show available files in a nice format
+            with st.expander(f"📋 View Available Files ({len(supplier_files)} files)", expanded=False):
+                for file_path, display_name in supplier_files:
+                    supplier_name = detect_supplier(os.path.basename(file_path))
+                    col_file, col_supplier = st.columns([3, 1])
+                    with col_file:
+                        st.write(f"📄 {display_name}")
+                    with col_supplier:
+                        if supplier_name:
+                            st.success(f"✅ {supplier_name}")
+                        else:
+                            st.warning("❓ Unknown")
+            
+            col_load, col_count = st.columns([1, 2])
+            with col_load:
+                if st.button("📋 Load All Files", type="secondary", use_container_width=True):
+                    loaded_files = []
+                    for file_path, display_name in supplier_files:
+                        try:
+                            with open(file_path, 'rb') as f:
+                                file_content = io.BytesIO(f.read())
+                                file_content.name = os.path.basename(file_path)
+                                loaded_files.append(file_content)
+                        except Exception as e:
+                            st.error(f"Error loading {display_name}: {str(e)}")
+                    
+                    if loaded_files:
+                        st.session_state.uploaded_files = loaded_files
+                        st.success(f"🎉 Loaded {len(loaded_files)} files successfully!")
+            with col_count:
+                st.info(f"📊 {len(supplier_files)} file{'s' if len(supplier_files) != 1 else ''} available")
                 
-                if loaded_files:
-                    st.session_state.uploaded_files = loaded_files
-                    st.success(f"✅ Loaded {len(loaded_files)} files from suppliers folder")
+            st.divider()
         
-        # Manual upload section
-        st.subheader("📁 Manual File Upload")
+        # Section 3: Manual Upload
+        st.markdown("### � Manual File Upload")
+        st.markdown("*Upload files directly from your computer as a fallback option*")
+        
         uploaded_files = st.file_uploader(
-            "Upload CSV or Excel files from your suppliers",
-            type=['csv', 'xlsx', 'xls'],
+            "📁 Select files to upload",
             accept_multiple_files=True,
-            help="Upload multiple supplier data files to process"
+            type=['csv', 'xlsx', 'xls'],
+            help="Upload CSV or Excel files from your computer",
+            label_visibility="collapsed"
         )
         
         if uploaded_files:
-            st.success(f"✅ {len(uploaded_files)} files uploaded")
-            for file in uploaded_files:
-                supplier = detect_supplier(file.name)
-                st.write(f"📄 {file.name} - {supplier or 'Unknown supplier'}")
+            col_success, col_info = st.columns([2, 1])
+            with col_success:
+                st.success(f"🎉 {len(uploaded_files)} file(s) uploaded successfully!")
+            with col_info:
+                total_size = sum(getattr(f, 'size', 0) for f in uploaded_files)
+                if total_size > 0:
+                    size_mb = total_size / (1024 * 1024)
+                    st.info(f"📊 Total: {size_mb:.1f}MB")
+            
+            # Show uploaded files with supplier detection
+            with st.expander("📋 View Uploaded Files", expanded=True):
+                for file in uploaded_files:
+                    supplier = detect_supplier(file.name)
+                    col_file, col_supplier = st.columns([3, 1])
+                    with col_file:
+                        st.write(f"📄 {file.name}")
+                    with col_supplier:
+                        if supplier:
+                            st.success(f"✅ {supplier}")
+                        else:
+                            st.warning("❓ Unknown")
+            
             st.session_state.uploaded_files = uploaded_files
         
         # Show current files status
