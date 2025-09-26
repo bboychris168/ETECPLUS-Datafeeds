@@ -648,7 +648,6 @@ else:
 
 # Shopify Template Tab
 with tab1:
-    st.markdown('<div class="step-box">', unsafe_allow_html=True)
     st.header("🏪 Shopify CSV Template")
     
     if shopify_configured:
@@ -703,13 +702,9 @@ with tab1:
                     st.rerun()
             else:
                 st.error("❌ Could not read columns from the file. Please check the file format.")
-    
-    st.markdown('</div>', unsafe_allow_html=True)
 
 # Upload Tab
 with tab2:
-    st.markdown('<div class="step-box">', unsafe_allow_html=True)
-    
     if not shopify_configured:
         st.header("📁 Upload Supplier Files (Disabled)")
         st.warning("⚠️ Please configure your Shopify template first in the 'Shopify Template' tab.")
@@ -897,13 +892,9 @@ with tab2:
             for file in st.session_state.uploaded_files:
                 supplier = detect_supplier(file.name)
                 st.write(f"✅ {file.name} - {supplier or 'Unknown supplier'}")
-    
-    st.markdown('</div>', unsafe_allow_html=True)
 
 # Mapping Tab
 with tab3:
-    st.markdown('<div class="step-box">', unsafe_allow_html=True)
-    
     if not shopify_configured:
         st.header("🔗 Map Columns (Disabled)")
         st.warning("⚠️ Please configure your Shopify template first.")
@@ -1100,13 +1091,9 @@ with tab3:
                         st.info(f"📊 Saved {column_mappings} column mappings and {custom_mappings} custom text fields")
                 else:
                     st.error("❌ Could not read the selected file. Please check the file format or try re-downloading.")
-    
-    st.markdown('</div>', unsafe_allow_html=True)
 
 # Export Tab
 with tab4:
-    st.markdown('<div class="step-box">', unsafe_allow_html=True)
-    
     if not shopify_configured:
         st.header("⚡ Process & Export (Disabled)")
         st.warning("⚠️ Please configure your Shopify template first.")
@@ -1338,8 +1325,6 @@ with tab4:
                 # Store in session for reference
                 st.session_state.processed_data = final_df
                 st.session_state.duplicates_info = duplicates_info
-    
-    st.markdown('</div>', unsafe_allow_html=True)
 
 # Show current mappings in sidebar
 st.sidebar.header("Current Mappings")
@@ -1362,7 +1347,6 @@ else:
 
 # Quoting Tab
 with tab5:
-    st.markdown('<div class="step-box">', unsafe_allow_html=True)
     st.header("💰 Product Quoting")
     st.markdown("Search for products using variant SKUs and view product information with images.")
     
@@ -1788,5 +1772,3 @@ with tab5:
             if st.button("🗑️ Clear Results", type="secondary"):
                 st.session_state.search_results = []
                 st.rerun()
-    
-    st.markdown('</div>', unsafe_allow_html=True)
