@@ -15,8 +15,6 @@ st.set_page_config(
     layout="wide"
 )
 
-
-
 # Enhanced CSS with mapping highlights
 st.markdown("""
 <style>
@@ -421,8 +419,10 @@ def find_and_remove_duplicates(combined_df):
             for vendor, count in after_invalid_removal.items():
                 st.write(f"   • {vendor}: {count} products")
     
-    # Find duplicates before removal
+    # Find duplicates and preserve image URLs before removal
     duplicates_info = []
+    images_preserved = 0
+    
     if len(combined_df) > 0:
         # Group by Variant SKU to find duplicates
         grouped = combined_df.groupby('Variant SKU')
@@ -431,21 +431,52 @@ def find_and_remove_duplicates(combined_df):
             if len(group) > 1:
                 # Sort by cost to see which ones will be removed
                 group_sorted = group.sort_values('Cost per item')
-                kept_row = group_sorted.iloc[0]  # Lowest cost (kept)
+                kept_idx = group_sorted.index[0]  # Index of lowest cost (kept)
                 removed_rows = group_sorted.iloc[1:]  # Higher cost (removed)
                 
+                # Check if we can preserve image URLs from duplicates
+                image_fields = ['Image Src', 'Variant Image']
+                
+                for image_field in image_fields:
+                    if image_field in combined_df.columns:
+                        # Get current image value for kept item
+                        current_image = combined_df.loc[kept_idx, image_field]
+                        
+                        # If kept item has no image or empty image
+                        if pd.isna(current_image) or str(current_image).strip() == '':
+                            # Look for image in duplicates that will be removed
+                            for _, removed_row in removed_rows.iterrows():
+                                removed_image = removed_row.get(image_field, '')
+                                
+                                # If duplicate has a valid image URL, preserve it
+                                if (pd.notna(removed_image) and 
+                                    str(removed_image).strip() != '' and 
+                                    str(removed_image).startswith(('http', 'https'))):
+                                    
+                                    # Transfer image URL to kept item
+                                    combined_df.loc[kept_idx, image_field] = removed_image
+                                    images_preserved += 1
+                                    
+                                    st.write(f"🖼️ Preserved {image_field} for SKU {sku} from {removed_row.get('Vendor', 'Unknown')} to {combined_df.loc[kept_idx, 'Vendor']}")
+                                    break  # Only take the first valid image found
+                
+                # Record duplicate info
                 for _, removed_row in removed_rows.iterrows():
                     duplicates_info.append({
                         'Variant SKU': sku,
                         'Title': removed_row.get('Title', ''),
                         'Vendor (Removed)': removed_row.get('Vendor', ''),
                         'Cost (Removed)': removed_row.get('Cost per item', 0),
-                        'Vendor (Kept)': kept_row.get('Vendor', ''),
-                        'Cost (Kept)': kept_row.get('Cost per item', 0),
-                        'Savings': removed_row.get('Cost per item', 0) - kept_row.get('Cost per item', 0)
+                        'Vendor (Kept)': combined_df.loc[kept_idx, 'Vendor'],
+                        'Cost (Kept)': combined_df.loc[kept_idx, 'Cost per item'],
+                        'Savings': removed_row.get('Cost per item', 0) - combined_df.loc[kept_idx, 'Cost per item']
                     })
     
-    # Remove duplicates keeping lowest cost
+    # Show image preservation summary
+    if images_preserved > 0:
+        st.success(f"🖼️ Preserved {images_preserved} image URLs from duplicate items")
+    
+    # Remove duplicates keeping lowest cost (with preserved images)
     final_df = combined_df.sort_values('Cost per item').drop_duplicates('Variant SKU', keep='first')
     
     # Show final vendor breakdown after duplicate removal
@@ -611,8 +642,6 @@ else:
 if not shopify_configured:
     st.warning("⚠️ Please upload your Shopify CSV template first to configure the column headers.")
 
-
-
 # Help Section
 with st.expander("📖 How to Use This Application", expanded=False):
     st.markdown("""
@@ -719,23 +748,13 @@ with tab2:
         st.header("📁 Get Supplier Data")
         st.markdown("*Choose how to get your supplier data files for processing*")
         
-        # Section 1: Auto-Download from APIs
-        # Load supplier config dynamically
+        # Create modern card-style sections
         supplier_config = load_supplier_config()
         
-        # Add refresh mechanism
-        col_header, col_refresh = st.columns([3, 1])
-        with col_header:
-            st.markdown("### 🌐 Download from Supplier APIs")
-        with col_refresh:
-            if st.button("🔄 Refresh Suppliers", help="Reload supplier configuration"):
-                st.rerun()
-        
+        # Section 1: Auto-Download from APIs
         if supplier_config:
+            st.markdown("### 🌐 Download from Supplier APIs")
             st.markdown("*Get the latest data directly from your suppliers*")
-            
-            # Show count of available suppliers
-            st.info(f"📊 {len(supplier_config)} supplier(s) configured")
             
             col1, col2, col3 = st.columns(3)
             supplier_keys = list(supplier_config.keys())
@@ -750,17 +769,6 @@ with tab2:
             if selected_suppliers and st.button("� Download to Suppliers Folder", type="primary"):
                 download_to_suppliers_folder(selected_suppliers, supplier_config)
             
-            st.divider()
-        else:
-            st.warning("⚠️ **No suppliers configured yet**")
-            st.markdown("""
-            **To add suppliers:**
-            1. Scroll down to **⚙️ Manage Supplier URLs** section
-            2. Use the supplier configuration interface to add supplier URLs
-            3. Click the **🔄 Refresh Suppliers** button above to reload
-            
-            Or use the manual upload option below.
-            """)
             st.divider()
         
         # Section 2: Load from Downloaded Files
@@ -877,46 +885,41 @@ with tab2:
                     else:
                         st.error("❌ Please fill in all fields")
             
-            st.divider()
-            
             # Edit existing suppliers
-            st.markdown("**Current Suppliers:**")
             if supplier_config:
-                for key, supplier in supplier_config.items():
-                    with st.expander(f"📦 {supplier['name']}", expanded=False):
-                        st.write(f"**Description:** {supplier['description']}")
-                        st.write(f"**Filename:** {supplier['filename']}")
+                st.markdown("**Edit Existing Suppliers:**")
+                for key, config in supplier_config.items():
+                    with st.container():
+                        st.markdown(f"**{config['name']}** (`{key}`)")
+                        col_edit1, col_edit2, col_remove = st.columns([2, 2, 1])
                         
-                        # Edit form
-                        edit_name = st.text_input(f"Name", value=supplier['name'], key=f"edit_name_{key}")
-                        edit_url = st.text_input(f"URL", value=supplier['url'], key=f"edit_url_{key}")
-                        edit_filename = st.text_input(f"Filename", value=supplier['filename'], key=f"edit_filename_{key}")
-                        edit_description = st.text_input(f"Description", value=supplier['description'], key=f"edit_desc_{key}")
+                        with col_edit1:
+                            new_name = st.text_input(f"Name###{key}", value=config['name'], key=f"name_{key}")
+                            new_url = st.text_input(f"URL###{key}", value=config['url'], key=f"url_{key}")
                         
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            if st.button(f"� Save Changes", key=f"save_{key}", type="secondary"):
-                                supplier_config[key] = {
-                                    "name": edit_name,
-                                    "url": edit_url,
-                                    "filename": edit_filename,
-                                    "file_type": supplier.get('file_type', 'csv'),
-                                    "description": edit_description
-                                }
-                                save_supplier_config(supplier_config)
-                                st.success(f"✅ Updated {edit_name}!")
-                                st.rerun()
+                        with col_edit2:
+                            new_filename = st.text_input(f"Filename###{key}", value=config['filename'], key=f"filename_{key}")
+                            
+                            col_update, col_delete = st.columns(2)
+                            with col_update:
+                                if st.button(f"💾 Update", key=f"update_{key}", type="secondary"):
+                                    supplier_config[key].update({
+                                        "name": new_name,
+                                        "url": new_url,
+                                        "filename": new_filename
+                                    })
+                                    save_supplier_config(supplier_config)
+                                    st.success(f"✅ Updated {new_name}!")
+                                    st.rerun()
+                            
+                            with col_delete:
+                                if st.button(f"🗑️ Remove", key=f"delete_{key}", type="secondary"):
+                                    del supplier_config[key]
+                                    save_supplier_config(supplier_config)
+                                    st.success(f"✅ Removed supplier!")
+                                    st.rerun()
                         
-                        with col2:
-                            if st.button(f"🗑️ Remove", key=f"remove_{key}", type="secondary"):
-                                del supplier_config[key]
-                                save_supplier_config(supplier_config)
-                                st.success(f"✅ Removed supplier!")
-                                st.rerun()
-            else:
-                st.info("No suppliers configured yet.")
-
-
+                        st.divider()
         
         # Show current files status
         if 'uploaded_files' in st.session_state and st.session_state.uploaded_files:

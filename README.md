@@ -72,39 +72,8 @@ A comprehensive Streamlit application for managing supplier product data, mappin
    streamlit run streamlit_app.py
    ```
 
-4. **Configure Supplier URLs (Local Development):**
-   ```bash
-   # Copy the secrets template
-   cp .streamlit/secrets.toml .streamlit/secrets.toml.local
-   # Edit the file and add your actual supplier URLs
-   ```
-
-5. **Access the application:**
+4. **Access the application:**
    Open your browser and navigate to `http://localhost:8501`
-
-## ☁️ Streamlit Cloud Deployment (Production)
-
-### Setup Steps
-
-1. **Deploy to Streamlit Cloud:**
-   - Go to [share.streamlit.io](https://share.streamlit.io)
-   - Connect your private GitHub repository
-   - Deploy the app
-
-2. **Configure Secrets in Streamlit Cloud:**
-   - In your app dashboard, go to Settings → Secrets
-   - Add your supplier URLs in TOML format:
-   ```toml
-   [supplier_urls]
-   leader_systems = "https://partner.leadersystems.com.au/WSDataFeed.asmx/DownLoad?CustomerCode=YOUR_CODE&WithHeading=true&WithLongDescription=true&DataType=7"
-   auscomp = "https://api.auscomp.au/downloadfeed?token=YOUR_TOKEN&filetype=csv"  
-   compuworld = "https://www.compuworld.com.au/products/exportproductpricelist?email=YOUR_EMAIL&id=YOUR_ID"
-   ```
-
-3. **App Automatically Detects Configuration:**
-   - Production: Uses Streamlit Cloud secrets
-   - Local: Uses `.streamlit/secrets.toml` or `supplier_config.json`
-   - Fallback: Manual URL entry via the app interface
 
 ## 🎯 Quick Start
 
@@ -325,5 +294,3 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ---
 
 **Built with ❤️ using Streamlit, Pandas, and Python**
-
-ETECPLUS.COM.AU
