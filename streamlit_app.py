@@ -421,8 +421,10 @@ def find_and_remove_duplicates(combined_df):
             for vendor, count in after_invalid_removal.items():
                 st.write(f"   • {vendor}: {count} products")
     
-    # Find duplicates before removal
+    # Find duplicates and preserve image URLs before removal
     duplicates_info = []
+    images_preserved = 0
+    
     if len(combined_df) > 0:
         # Group by Variant SKU to find duplicates
         grouped = combined_df.groupby('Variant SKU')
@@ -431,21 +433,52 @@ def find_and_remove_duplicates(combined_df):
             if len(group) > 1:
                 # Sort by cost to see which ones will be removed
                 group_sorted = group.sort_values('Cost per item')
-                kept_row = group_sorted.iloc[0]  # Lowest cost (kept)
+                kept_idx = group_sorted.index[0]  # Index of lowest cost (kept)
                 removed_rows = group_sorted.iloc[1:]  # Higher cost (removed)
                 
+                # Check if we can preserve image URLs from duplicates
+                image_fields = ['Image Src', 'Variant Image']
+                
+                for image_field in image_fields:
+                    if image_field in combined_df.columns:
+                        # Get current image value for kept item
+                        current_image = combined_df.loc[kept_idx, image_field]
+                        
+                        # If kept item has no image or empty image
+                        if pd.isna(current_image) or str(current_image).strip() == '':
+                            # Look for image in duplicates that will be removed
+                            for _, removed_row in removed_rows.iterrows():
+                                removed_image = removed_row.get(image_field, '')
+                                
+                                # If duplicate has a valid image URL, preserve it
+                                if (pd.notna(removed_image) and 
+                                    str(removed_image).strip() != '' and 
+                                    str(removed_image).startswith(('http', 'https'))):
+                                    
+                                    # Transfer image URL to kept item
+                                    combined_df.loc[kept_idx, image_field] = removed_image
+                                    images_preserved += 1
+                                    
+                                    st.write(f"🖼️ Preserved {image_field} for SKU {sku} from {removed_row.get('Vendor', 'Unknown')} to {combined_df.loc[kept_idx, 'Vendor']}")
+                                    break  # Only take the first valid image found
+                
+                # Record duplicate info
                 for _, removed_row in removed_rows.iterrows():
                     duplicates_info.append({
                         'Variant SKU': sku,
                         'Title': removed_row.get('Title', ''),
                         'Vendor (Removed)': removed_row.get('Vendor', ''),
                         'Cost (Removed)': removed_row.get('Cost per item', 0),
-                        'Vendor (Kept)': kept_row.get('Vendor', ''),
-                        'Cost (Kept)': kept_row.get('Cost per item', 0),
-                        'Savings': removed_row.get('Cost per item', 0) - kept_row.get('Cost per item', 0)
+                        'Vendor (Kept)': combined_df.loc[kept_idx, 'Vendor'],
+                        'Cost (Kept)': combined_df.loc[kept_idx, 'Cost per item'],
+                        'Savings': removed_row.get('Cost per item', 0) - combined_df.loc[kept_idx, 'Cost per item']
                     })
     
-    # Remove duplicates keeping lowest cost
+    # Show image preservation summary
+    if images_preserved > 0:
+        st.success(f"🖼️ Preserved {images_preserved} image URLs from duplicate items")
+    
+    # Remove duplicates keeping lowest cost (with preserved images)
     final_df = combined_df.sort_values('Cost per item').drop_duplicates('Variant SKU', keep='first')
     
     # Show final vendor breakdown after duplicate removal
