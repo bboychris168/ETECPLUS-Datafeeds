@@ -159,14 +159,69 @@ def save_mappings(mappings):
         json.dump(mappings, f, indent=2)
 
 def load_supplier_config():
-    """Load supplier download configuration"""
+    """Load supplier configuration from Streamlit secrets or fallback"""
+    try:
+        # Try Streamlit secrets first (production)
+        if hasattr(st, 'secrets') and 'supplier_urls' in st.secrets:
+            urls = st.secrets['supplier_urls']
+            return {
+                "leader_systems": {
+                    "name": "Leader Systems",
+                    "url": urls.get('leader_systems', ''),
+                    "filename": "leader_systems_datafeed.csv",
+                    "file_type": "csv",
+                    "description": "Leader Systems product datafeed"
+                },
+                "auscomp": {
+                    "name": "AusComp",
+                    "url": urls.get('auscomp', ''),
+                    "filename": "auscomp_datafeed.csv",
+                    "file_type": "csv", 
+                    "description": "AusComp product datafeed"
+                },
+                "compuworld": {
+                    "name": "CompuWorld",
+                    "url": urls.get('compuworld', ''),
+                    "filename": "compuworld_datafeed.csv",
+                    "file_type": "csv",
+                    "description": "CompuWorld product price list"
+                }
+            }
+    except Exception as e:
+        st.info(f"📝 Using fallback config - Streamlit secrets not available")
+    
+    # Fallback to JSON file for local development
     if os.path.exists("supplier_config.json"):
         with open("supplier_config.json", 'r') as f:
             return json.load(f)
-    return {}
+    
+    # Final fallback - empty config with structure
+    return {
+        "leader_systems": {
+            "name": "Leader Systems",
+            "url": "",
+            "filename": "leader_systems_datafeed.csv",
+            "file_type": "csv",
+            "description": "Leader Systems product datafeed"
+        },
+        "auscomp": {
+            "name": "AusComp",
+            "url": "",
+            "filename": "auscomp_datafeed.csv",
+            "file_type": "csv", 
+            "description": "AusComp product datafeed"
+        },
+        "compuworld": {
+            "name": "CompuWorld",
+            "url": "",
+            "filename": "compuworld_datafeed.csv",
+            "file_type": "csv",
+            "description": "CompuWorld product price list"
+        }
+    }
 
 def save_supplier_config(config):
-    """Save supplier download configuration"""
+    """Save supplier configuration - only for local development"""
     with open("supplier_config.json", 'w') as f:
         json.dump(config, f, indent=4)
 
@@ -641,6 +696,44 @@ else:
 
 if not shopify_configured:
     st.warning("⚠️ Please upload your Shopify CSV template first to configure the column headers.")
+
+# Configuration Status
+supplier_config = load_supplier_config()
+config_status = st.expander("⚙️ Configuration Status", expanded=False)
+with config_status:
+    # Check configuration source
+    if hasattr(st, 'secrets') and 'supplier_urls' in st.secrets:
+        st.success("🔐 **Using Streamlit Cloud Secrets** (Production Mode)")
+        st.write("✅ Supplier URLs loaded from secure Streamlit secrets")
+        
+        # Show which suppliers are configured
+        urls = st.secrets['supplier_urls']
+        configured_suppliers = [name for name, url in urls.items() if url]
+        if configured_suppliers:
+            st.write(f"📡 **Configured Suppliers:** {', '.join(configured_suppliers)}")
+        else:
+            st.warning("⚠️ Supplier URLs are empty in secrets")
+            
+    elif os.path.exists("supplier_config.json"):
+        st.info("📄 **Using Local JSON File** (Development Mode)")
+        st.write("✅ Supplier configuration loaded from supplier_config.json")
+        
+        # Show configured suppliers
+        if supplier_config:
+            configured_suppliers = [config['name'] for config in supplier_config.values() if config.get('url')]
+            if configured_suppliers:
+                st.write(f"📡 **Configured Suppliers:** {', '.join(configured_suppliers)}")
+            else:
+                st.warning("⚠️ No supplier URLs configured in JSON file")
+        
+    elif os.path.exists(".streamlit/secrets.toml"):
+        st.info("🔧 **Using Local Secrets** (Development Mode)")
+        st.write("✅ Configuration loaded from .streamlit/secrets.toml")
+    else:
+        st.error("❌ **No Configuration Found**")
+        st.write("Please set up supplier URLs either:")
+        st.write("• In Streamlit Cloud secrets (for production)")
+        st.write("• In supplier_config.json (for local development)")
 
 # Help Section
 with st.expander("📖 How to Use This Application", expanded=False):
