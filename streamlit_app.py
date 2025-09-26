@@ -255,6 +255,8 @@ def normalize_dataframe_types(df):
     for col in df_normalized.columns:
         if col in numeric_columns:
             # Keep numeric columns as numeric, convert to float to handle mixed int/float
+            # Remove commas before converting to numeric
+            df_normalized[col] = df_normalized[col].astype(str).str.replace(',', '')
             df_normalized[col] = pd.to_numeric(df_normalized[col], errors='coerce').fillna(0)
         else:
             # Convert all other columns to string and handle None/NaN values aggressively
@@ -389,7 +391,8 @@ def find_and_remove_duplicates(combined_df):
         st.write("⚠️ Missing required columns for duplicate removal")
         return combined_df, []
     
-    # Convert cost to numeric
+    # Convert cost to numeric - remove commas first
+    combined_df['Cost per item'] = combined_df['Cost per item'].astype(str).str.replace(',', '')
     combined_df['Cost per item'] = pd.to_numeric(combined_df['Cost per item'], errors='coerce')
     
     # Check for invalid costs by vendor
@@ -1569,7 +1572,8 @@ with tab5:
                                 price_str = str(raw_value).replace('$', '').replace(',', '').replace(' ', '').replace('AUD', '').replace('USD', '').strip()
                                 
                                 if price_str and price_str.lower() not in ['nan', 'none', '', 'null', '0', '0.0', '0.00']:
-                                    price_value = float(price_str)
+                                    # Remove commas before converting to float
+                                    price_value = float(price_str.replace(',', ''))
                                     if price_value > 0:
                                         # Prioritize "Cost per item" over other price fields
                                         if col == 'Cost per item':
@@ -1588,21 +1592,24 @@ with tab5:
                             except (ValueError, TypeError):
                                 continue
                 
-                # Show cost analysis summary if lowest cost found
-                if lowest_cost_product is not None:
-                    cost_field = lowest_cost_product.get('_cost_field', 'Cost per item')
-                    st.info(f"💰 Best price found in '{cost_field}' column")
-                
                 # Display lowest cost product at the top
                 if lowest_cost_product is not None:
-                    st.markdown("### 🏆 **Best Price Found**")
-                    st.markdown(f"*Lowest cost: ${lowest_cost_product['_cost_value']:.2f}*")
+                    # Enhanced green styling for entire best price section
+                    st.markdown("""
+                    <div style="
+                        background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+                        color: white;
+                        border-radius: 15px;
+                        padding: 20px;
+                        margin: 15px 0;
+                        box-shadow: 0 4px 20px rgba(40, 167, 69, 0.3);
+                        border: none;
+                    ">
+                    <h3 style="color: white; margin-top: 0;">🏆 Best Price Found</h3>
+                    </div>
+                    """, unsafe_allow_html=True)
                     
                     with st.container():
-                        # Add a special styling for the best price container
-                        st.markdown("""
-                        <div style="border: 2px solid #28a745; border-radius: 10px; padding: 15px; margin: 10px 0; background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);">
-                        """, unsafe_allow_html=True)
                         
                         col_info, col_image = st.columns([2, 1])
                         
@@ -1626,46 +1633,92 @@ with tab5:
                                     st.write(f"{field}: {lowest_cost_product[field]}")
                         
                         with col_image:
-                            # Look for Shopify image fields
-                            shopify_image_fields = ['Image Src', 'Variant Image']
-                            generic_image_fields = ['image', 'img', 'photo', 'picture', 'image_url', 'img_url', 'photo_url']
+                            # Smart image search - try best price product first, then all other suppliers
                             image_found = False
+                            image_url_found = None
+                            supplier_with_image = None
                             
-                            # Try Shopify image fields first
-                            for field in shopify_image_fields:
-                                if field in lowest_cost_product.index and pd.notna(lowest_cost_product[field]):
-                                    image_url = lowest_cost_product[field]
-                                    if str(image_url).startswith(('http', 'https')):
-                                        try:
-                                            st.image(image_url, caption=f"Product Image", width=200)
-                                            image_found = True
-                                            break
-                                        except:
-                                            pass
-                            
-                            # Fallback to generic image fields
-                            if not image_found:
-                                for col in lowest_cost_product.index:
+                            # Define image field patterns to look for
+                            def find_image_url(product_row):
+                                """Find image URL in a product row"""
+                                # Check Shopify image fields first
+                                shopify_image_fields = ['Image Src', 'Variant Image']
+                                for field in shopify_image_fields:
+                                    if field in product_row.index and pd.notna(product_row[field]):
+                                        url = str(product_row[field]).strip()
+                                        if url.startswith(('http', 'https')):
+                                            return url
+                                
+                                # Check generic image fields
+                                for col in product_row.index:
                                     col_lower = str(col).lower()
-                                    if any(img_field in col_lower for img_field in generic_image_fields):
-                                        image_url = lowest_cost_product[col]
-                                        if pd.notna(image_url) and str(image_url).startswith(('http', 'https')):
-                                            try:
-                                                st.image(image_url, caption=f"Product Image", width=200)
-                                                image_found = True
-                                                break
-                                            except:
-                                                pass
+                                    if any(keyword in col_lower for keyword in ['image', 'img', 'photo', 'picture']):
+                                        if pd.notna(product_row[col]):
+                                            url = str(product_row[col]).strip()
+                                            if url.startswith(('http', 'https')):
+                                                return url
+                                return None
                             
-                            if not image_found:
-                                st.info("📷 No image available")
+                            # Step 1: Try to get image from the best price product
+                            best_price_supplier = lowest_cost_product.get('_Supplier', 'Unknown')
+                            image_url_found = find_image_url(lowest_cost_product)
+                            
+                            if image_url_found:
+                                supplier_with_image = best_price_supplier
+                                image_found = True
+                            else:
+                                # Step 2: Search ALL other suppliers for an image
+                                st.write(f"🔍 Best price supplier ({best_price_supplier}) has no image, searching other suppliers...")
+                                
+                                # Get the search term to find all related products
+                                search_term = lowest_cost_product.get('search_term', '')
+                                if search_term:
+                                    # Find all products with the same search term
+                                    matching_products = combined_results[combined_results['search_term'] == search_term]
+                                    st.write(f"📊 Found {len(matching_products)} total products for this SKU")
+                                    
+                                    # Try each supplier
+                                    for idx, other_product in matching_products.iterrows():
+                                        other_supplier = other_product.get('_Supplier', 'Unknown')
+                                        
+                                        # Skip the best price supplier (already tried)
+                                        if other_supplier != best_price_supplier:
+                                            st.write(f"🔍 Checking {other_supplier} for images...")
+                                            temp_image_url = find_image_url(other_product)
+                                            
+                                            if temp_image_url:
+                                                image_url_found = temp_image_url
+                                                supplier_with_image = other_supplier
+                                                image_found = True
+                                                st.write(f"✅ Found image in {other_supplier}!")
+                                                break
+                                            else:
+                                                st.write(f"❌ No image in {other_supplier}")
+                            
+                            # Display the image if found
+                            if image_found and image_url_found:
+                                try:
+                                    if supplier_with_image == best_price_supplier:
+                                        caption = "Product Image"
+                                    else:
+                                        caption = f"Product Image (from {supplier_with_image})"
+                                    
+                                    st.image(image_url_found, caption=caption, width=200)
+                                except Exception as e:
+                                    st.error(f"Failed to load image: {str(e)}")
+                                    st.info("📷 Image URL found but failed to load")
+                            else:
+                                st.warning("📷 No images found in any supplier data")
+                                
+                                # Debug: Show what fields are available
+                                st.write("🔍 Available fields in best price product:")
+                                available_fields = [col for col in lowest_cost_product.index if pd.notna(lowest_cost_product[col]) and str(lowest_cost_product[col]).strip()]
+                                st.write(available_fields[:10])  # Show first 10 fields
                         
                         # Show source info
                         supplier = lowest_cost_product.get('_Supplier', 'Unknown')
                         vendor = lowest_cost_product.get('Vendor', 'Unknown Vendor')
                         st.markdown(f"**Source:** {supplier} (Vendor: {vendor})")
-                        
-                        st.markdown("</div>", unsafe_allow_html=True)
                     
                     st.markdown("---")
                     st.markdown("### 📋 All Search Results")
@@ -1692,7 +1745,12 @@ with tab5:
                         for idx, row in term_results.iterrows():
                             supplier = row.get('_Supplier', 'Unknown')
                             cost = row.get('Cost per item', 'N/A')
-                            cost_display = f"${float(cost):.2f}" if pd.notna(cost) and cost != '' else "No price"
+                            try:
+                                # Remove commas and convert to float
+                                cost_value = float(str(cost).replace(',', '')) if pd.notna(cost) and cost != '' and cost != 'N/A' else None
+                                cost_display = f"${cost_value:.2f}" if cost_value is not None else "No price"
+                            except (ValueError, TypeError):
+                                cost_display = "No price"
                             
                             with st.expander(f"📦 {supplier} - {cost_display}", expanded=False):
                                 
