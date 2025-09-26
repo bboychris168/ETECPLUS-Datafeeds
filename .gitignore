@@ -1,39 +1,104 @@
-# Streamlit and sensitive config files
+# Streamlit secrets and sensitive config files
 .streamlit/secrets.toml
+.streamlit/config.toml
+streamlit/secrets.toml
 streamlit/config.toml
 config.toml
-*.toml
+secrets.toml
+*secrets.toml
+*config.toml
 openai_config.json
+.env*
+*.env
 .env.local
 .env.production
+.env.development
+.env.staging
 
-# Data files - CSV/Excel/JSON containing supplier data
+# API Keys and Sensitive Configuration Files
+*api_key*
+*api-key*
+*apikey*
+*secret*
+*token*
+*password*
+*credentials*
+*auth*
+*private*
+supplier_config.json
+supplier_config*.json
+api_config*.json
+auth_config*.json
+
+# Data files - CSV/Excel containing supplier data
 *.csv
 *.xlsx
 *.xls
 *.xlsm
 *.ods
+
+# Supplier data folders (contain sensitive pricing/product data)
 suppliers/
 quoting/
-mappings/
-*.json
+downloads/
+data/
+exports/
 
-# Sensitive supplier and configuration data
-supplier_config.json
-supplier_mappings.json
-tag_config.json
-shopify_template.json
+# Allow mappings folder but exclude any CSV/Excel files within it
+!mappings/
+mappings/*.csv
+mappings/*.xlsx
+mappings/*.xls
+mappings/*secret*
+mappings/*api*
+mappings/*token*
 
 # Generated export files
 shopify_products.csv
 export_data_for_quoting.csv
 product_search_results_*.csv
+*_export.csv
+*_datafeed.csv
+*_pricelist.csv
+
+# Database and session files
+*.db
+*.sqlite
+*.sqlite3
+session_state.json
+cache/
+
+# Logs and debug files
+*.log
+debug.txt
+error.log
+access.log
+*.debug
 
 # Temporary and backup files
 *.tmp
 *.bak
 *.backup
 *~
+.DS_Store
+Thumbs.db
+
+# IDE and editor files
+.vscode/settings.json
+.vscode/launch.json
+*.swp
+*.swo
+*~
+.idea/
+
+# Additional security patterns
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+ssh_keys/
+certificates/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
