@@ -1022,7 +1022,8 @@ with tab3:
                     st.info("💡 **Color Guide:** 🟢 Green = Mapped | 🟡 Yellow = Required | 🔴 Red = Missing")
                     
                     # File keyword for auto-detection
-                    mapping = {}
+                    # Initialize mapping with existing data to preserve state
+                    mapping = existing.copy() if existing else {}
                     mapping["_file_keyword"] = st.text_input(
                         "🔍 File keyword (for auto-detection):", 
                         value=existing.get("_file_keyword", supplier.lower()),
@@ -1036,8 +1037,9 @@ with tab3:
                     actual_shopify_fields = [field for field in shopify_fields if field != "_file_keyword"]
                     for i, field in enumerate(actual_shopify_fields):
                         with col1 if i % 2 == 0 else col2:
-                            current_mapping = existing.get(field, "")
-                            current_custom = existing.get(f"{field}_custom", "")
+                            # Use current mapping values if available, otherwise use existing saved values
+                            current_mapping = mapping.get(field, "") or existing.get(field, "")
+                            current_custom = mapping.get(f"{field}_custom", "") or existing.get(f"{field}_custom", "")
                             
                             # Determine field status and styling
                             important_fields = ["Variant SKU", "Title", "Variant Price", "Cost per item", "Variant Inventory Qty"]
