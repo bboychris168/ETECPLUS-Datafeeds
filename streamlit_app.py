@@ -132,7 +132,7 @@ def extract_shopify_columns(file):
             for delimiter in [',', ';', '\t']:
                 try:
                     file.seek(0)
-                    df = pd.read_csv(file, delimiter=delimiter, nrows=0)  # Just get headers
+                    df = pd.read_csv(file, delimiter=delimiter, nrows=0, low_memory=False)  # Just get headers
                     if len(df.columns) > 5:  # Reasonable number of columns for Shopify
                         return list(df.columns)
                 except:
@@ -364,7 +364,7 @@ def read_file(file):
             for delimiter in [',', ';', '\t']:
                 try:
                     file.seek(0)
-                    df = pd.read_csv(file, delimiter=delimiter)
+                    df = pd.read_csv(file, delimiter=delimiter, low_memory=False)
                     if len(df.columns) > 1:
                         return df
                 except:
@@ -1416,7 +1416,7 @@ with tab5:
                                 # Read supplier file
                                 file.seek(0)
                                 if file.name.endswith('.csv'):
-                                    supplier_df = pd.read_csv(file)
+                                    supplier_df = pd.read_csv(file, low_memory=False)
                                 else:
                                     supplier_df = pd.read_excel(file)
                                 
@@ -1507,11 +1507,11 @@ with tab5:
                 # Read the exported CSV file (either file path or uploaded file)
                 if isinstance(exported_csv, str):
                     # It's a file path
-                    df = pd.read_csv(exported_csv)
+                    df = pd.read_csv(exported_csv, low_memory=False)
                 else:
                     # It's an uploaded file object
                     exported_csv.seek(0)
-                    df = pd.read_csv(exported_csv)
+                    df = pd.read_csv(exported_csv, low_memory=False)
                 
                 st.write(f"📄 Loaded {len(df)} products from quote data")
                 
