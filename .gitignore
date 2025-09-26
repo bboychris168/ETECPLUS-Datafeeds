@@ -1,3 +1,4 @@
+# Streamlit and sensitive config files
 .streamlit/secrets.toml
 streamlit/config.toml
 config.toml
@@ -5,6 +6,34 @@ config.toml
 openai_config.json
 .env.local
 .env.production
+
+# Data files - CSV/Excel/JSON containing supplier data
+*.csv
+*.xlsx
+*.xls
+*.xlsm
+*.ods
+suppliers/
+quoting/
+mappings/
+*.json
+
+# Sensitive supplier and configuration data
+supplier_config.json
+supplier_mappings.json
+tag_config.json
+shopify_template.json
+
+# Generated export files
+shopify_products.csv
+export_data_for_quoting.csv
+product_search_results_*.csv
+
+# Temporary and backup files
+*.tmp
+*.bak
+*.backup
+*~
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
