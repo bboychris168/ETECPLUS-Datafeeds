@@ -890,13 +890,23 @@ with tab2:
         st.header("📁 Get Supplier Data")
         st.markdown("*Choose how to get your supplier data files for processing*")
         
-        # Create modern card-style sections
+        # Section 1: Auto-Download from APIs
+        # Load supplier config dynamically to catch TOML changes
         supplier_config = load_supplier_config()
         
-        # Section 1: Auto-Download from APIs
-        if supplier_config:
+        # Add refresh mechanism
+        col_header, col_refresh = st.columns([3, 1])
+        with col_header:
             st.markdown("### 🌐 Download from Supplier APIs")
+        with col_refresh:
+            if st.button("🔄 Refresh Suppliers", help="Reload supplier configuration"):
+                st.rerun()
+        
+        if supplier_config:
             st.markdown("*Get the latest data directly from your suppliers*")
+            
+            # Show count of available suppliers
+            st.info(f"📊 {len(supplier_config)} supplier(s) configured")
             
             col1, col2, col3 = st.columns(3)
             supplier_keys = list(supplier_config.keys())
@@ -911,6 +921,17 @@ with tab2:
             if selected_suppliers and st.button("� Download to Suppliers Folder", type="primary"):
                 download_to_suppliers_folder(selected_suppliers, supplier_config)
             
+            st.divider()
+        else:
+            st.warning("⚠️ **No suppliers configured yet**")
+            st.markdown("""
+            **To add suppliers:**
+            1. Scroll down to **⚙️ Manage Supplier URLs** section
+            2. Use the TOML configuration interface to add supplier URLs
+            3. Click the **🔄 Refresh Suppliers** button above to reload
+            
+            Or use the manual upload option below.
+            """)
             st.divider()
         
         # Section 2: Load from Downloaded Files
