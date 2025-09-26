@@ -7,6 +7,14 @@ import requests
 import io
 from datetime import datetime
 import time
+from pathlib import Path
+
+# Try to import toml, install if not available
+try:
+    import toml
+except ImportError:
+    st.error("⚠️ TOML library not installed. Please add 'toml' to your requirements.txt")
+    st.stop()
 
 # Configure page
 st.set_page_config(
@@ -14,6 +22,47 @@ st.set_page_config(
     page_icon="📊",
     layout="wide"
 )
+
+# TOML Management Functions
+def load_toml_secrets():
+    """Load secrets from local TOML file"""
+    secrets_path = Path(".streamlit/secrets.toml")
+    if secrets_path.exists():
+        try:
+            with open(secrets_path, 'r') as f:
+                return toml.load(f)
+        except Exception as e:
+            st.error(f"Error reading secrets.toml: {e}")
+            return {}
+    return {}
+
+def save_toml_secrets(secrets_data):
+    """Save secrets to local TOML file"""
+    secrets_path = Path(".streamlit/secrets.toml")
+    secrets_path.parent.mkdir(exist_ok=True)
+    
+    try:
+        with open(secrets_path, 'w') as f:
+            # Add header comment
+            f.write("# Streamlit Secrets Configuration\n")
+            f.write("# This file is for LOCAL DEVELOPMENT ONLY\n")
+            f.write("# In production (Streamlit Cloud), add these secrets via the web interface\n\n")
+            toml.dump(secrets_data, f)
+        return True
+    except Exception as e:
+        st.error(f"Error saving secrets.toml: {e}")
+        return False
+
+def can_modify_toml():
+    """Check if we can modify local TOML (not in production)"""
+    # In Streamlit Cloud, we can't write to files
+    try:
+        test_path = Path(".streamlit/test_write.tmp")
+        test_path.touch()
+        test_path.unlink()
+        return True
+    except:
+        return False
 
 # Enhanced CSS with mapping highlights
 st.markdown("""
@@ -948,71 +997,138 @@ with tab2:
         st.markdown("### ⚙️ Manage Supplier URLs")
         st.markdown("*Add, edit, or remove supplier download URLs*")
         
-        supplier_config = load_supplier_config()
+        # Check if we can modify TOML locally
+        can_modify = can_modify_toml()
         
-        with st.expander("🔧 Supplier Configuration", expanded=False):
-            # Add new supplier
-            st.markdown("**Add New Supplier:**")
-            col1, col2 = st.columns(2)
-            with col1:
-                new_supplier_key = st.text_input("Supplier Key (lowercase, no spaces)", help="e.g., 'new_supplier'")
-                new_supplier_name = st.text_input("Supplier Display Name", help="e.g., 'New Supplier'")
-            with col2:
-                new_supplier_url = st.text_input("Download URL", help="Full URL to the supplier's datafeed")
-                new_supplier_filename = st.text_input("Filename", help="e.g., 'new_supplier_datafeed.csv'")
+        if not can_modify:
+            with st.expander("� Production Environment - Read Only", expanded=False):
+                st.info("🔒 **Production Environment Detected**")
+                st.markdown("""
+                You're running in production mode. Supplier URLs are managed via Streamlit Cloud secrets.
+                
+                **To modify suppliers in production:**
+                1. Go to your Streamlit Cloud dashboard
+                2. Navigate to your app settings
+                3. Click "Secrets" and update the TOML configuration
+                
+                **Current suppliers from production secrets:**
+                """)
+                
+                # Show read-only current suppliers
+                config = load_supplier_config()
+                for key, supplier in config.items():
+                    st.write(f"✅ **{supplier['name']}** - {supplier['description']}")
+        else:
+            # Local development - allow TOML editing
+            st.info("💻 **Local Development Mode** - You can edit supplier URLs directly")
             
-            col_add, col_spacer = st.columns([1, 3])
-            with col_add:
-                if st.button("➕ Add Supplier", type="secondary"):
-                    if new_supplier_key and new_supplier_name and new_supplier_url and new_supplier_filename:
-                        supplier_config[new_supplier_key] = {
-                            "name": new_supplier_name,
-                            "url": new_supplier_url,
-                            "filename": new_supplier_filename,
-                            "file_type": "csv",
-                            "description": f"{new_supplier_name} product datafeed"
-                        }
-                        save_supplier_config(supplier_config)
-                        st.success(f"✅ Added {new_supplier_name} successfully!")
-                        st.rerun()
+            with st.expander("🔧 TOML Supplier Configuration", expanded=False):
+                # Load current TOML secrets
+                secrets_data = load_toml_secrets()
+                supplier_urls = secrets_data.get('supplier_urls', {})
+                
+                # Create tabs for different actions
+                tab1, tab2, tab3 = st.tabs(["📝 Edit Existing", "➕ Add New", "🗑️ Remove"])
+                
+                with tab1:
+                    st.markdown("**Edit Existing Suppliers:**")
+                    
+                    if supplier_urls:
+                        modified = False
+                        new_urls = supplier_urls.copy()
+                        
+                        for supplier_key, url in supplier_urls.items():
+                            st.markdown(f"**{supplier_key.replace('_', ' ').title()}:**")
+                            new_url = st.text_area(
+                                f"URL for {supplier_key}",
+                                value=url,
+                                key=f"edit_{supplier_key}",
+                                height=100
+                            )
+                            if new_url != url:
+                                new_urls[supplier_key] = new_url
+                                modified = True
+                            st.divider()
+                        
+                        if modified:
+                            if st.button("💾 Save Changes", type="primary"):
+                                secrets_data['supplier_urls'] = new_urls
+                                if save_toml_secrets(secrets_data):
+                                    st.success("✅ Supplier URLs updated successfully!")
+                                    st.rerun()
                     else:
-                        st.error("❌ Please fill in all fields")
-            
-            # Edit existing suppliers
-            if supplier_config:
-                st.markdown("**Edit Existing Suppliers:**")
-                for key, config in supplier_config.items():
-                    with st.container():
-                        st.markdown(f"**{config['name']}** (`{key}`)")
-                        col_edit1, col_edit2, col_remove = st.columns([2, 2, 1])
-                        
-                        with col_edit1:
-                            new_name = st.text_input(f"Name###{key}", value=config['name'], key=f"name_{key}")
-                            new_url = st.text_input(f"URL###{key}", value=config['url'], key=f"url_{key}")
-                        
-                        with col_edit2:
-                            new_filename = st.text_input(f"Filename###{key}", value=config['filename'], key=f"filename_{key}")
-                            
-                            col_update, col_delete = st.columns(2)
-                            with col_update:
-                                if st.button(f"💾 Update", key=f"update_{key}", type="secondary"):
-                                    supplier_config[key].update({
-                                        "name": new_name,
-                                        "url": new_url,
-                                        "filename": new_filename
-                                    })
-                                    save_supplier_config(supplier_config)
-                                    st.success(f"✅ Updated {new_name}!")
+                        st.info("No existing suppliers found.")
+                
+                with tab2:
+                    st.markdown("**Add New Supplier:**")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        new_supplier_key = st.text_input(
+                            "Supplier Key (lowercase, use underscores)",
+                            placeholder="e.g., tech_data"
+                        )
+                    with col2:
+                        new_supplier_name = st.text_input(
+                            "Supplier Display Name",
+                            placeholder="e.g., Tech Data"
+                        )
+                    
+                    new_supplier_url = st.text_area(
+                        "Supplier API URL",
+                        placeholder="https://api.supplier.com/datafeed?token=...",
+                        height=100
+                    )
+                    
+                    if st.button("➕ Add Supplier", type="primary"):
+                        if new_supplier_key and new_supplier_url:
+                            # Validate supplier key format
+                            if not re.match(r'^[a-z_]+$', new_supplier_key):
+                                st.error("❌ Supplier key must be lowercase letters and underscores only")
+                            elif new_supplier_key not in supplier_urls:
+                                secrets_data.setdefault('supplier_urls', {})[new_supplier_key] = new_supplier_url
+                                if save_toml_secrets(secrets_data):
+                                    st.success(f"✅ Added {new_supplier_name or new_supplier_key} successfully!")
                                     st.rerun()
-                            
-                            with col_delete:
-                                if st.button(f"🗑️ Remove", key=f"delete_{key}", type="secondary"):
-                                    del supplier_config[key]
-                                    save_supplier_config(supplier_config)
-                                    st.success(f"✅ Removed supplier!")
-                                    st.rerun()
+                            else:
+                                st.error("❌ Supplier key already exists!")
+                        else:
+                            st.error("❌ Please fill in both supplier key and URL")
+                
+                with tab3:
+                    st.markdown("**Remove Suppliers:**")
+                    
+                    if supplier_urls:
+                        supplier_to_remove = st.selectbox(
+                            "Select supplier to remove:",
+                            options=list(supplier_urls.keys()),
+                            format_func=lambda x: x.replace('_', ' ').title()
+                        )
                         
-                        st.divider()
+                        if supplier_to_remove:
+                            st.warning(f"⚠️ This will remove **{supplier_to_remove.replace('_', ' ').title()}**")
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                if st.button("🗑️ Remove Supplier", type="secondary"):
+                                    del secrets_data['supplier_urls'][supplier_to_remove]
+                                    if save_toml_secrets(secrets_data):
+                                        st.success(f"✅ Removed {supplier_to_remove} successfully!")
+                                        st.rerun()
+                            with col2:
+                                st.info("This action cannot be undone")
+                    else:
+                        st.info("No suppliers to remove.")
+                
+                # Show current configuration
+                st.markdown("---")
+                st.markdown("**📋 Current TOML Configuration:**")
+                
+                if supplier_urls:
+                    for key, url in supplier_urls.items():
+                        with st.expander(f"🔗 {key.replace('_', ' ').title()}"):
+                            st.code(url, language="text")
+                else:
+                    st.info("No suppliers configured yet.")
         
         # Show current files status
         if 'uploaded_files' in st.session_state and st.session_state.uploaded_files:
