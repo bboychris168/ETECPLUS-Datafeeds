@@ -245,6 +245,26 @@ def extract_quantity(qty_str):
     match = re.search(r'(\d+)', qty_str)
     return int(match.group(1)) if match else 0
 
+def convert_weight_to_grams(weight_str):
+    """Convert weight string to grams - simple x1000 conversion for kg to grams"""
+    if pd.isna(weight_str) or weight_str == '':
+        return 0
+    
+    weight_str = str(weight_str).strip()
+    
+    # Extract just the numeric value
+    try:
+        # Remove any non-numeric characters except decimal point
+        clean_weight = re.sub(r'[^\d.]', '', weight_str)
+        if clean_weight:
+            weight_value = float(clean_weight)
+            # Simple conversion: multiply by 1000 to convert kg to grams
+            return int(round(weight_value * 1000))
+        else:
+            return 0
+    except (ValueError, TypeError):
+        return 0
+
 def normalize_dataframe_types(df):
     """Normalize DataFrame column types to prevent concatenation errors"""
     df_normalized = df.copy()
@@ -576,6 +596,11 @@ def process_files(uploaded_files, mappings):
                     if 'Variant Inventory Qty' in result_df.columns:
                         result_df['Variant Inventory Qty'] = result_df['Variant Inventory Qty'].apply(extract_quantity)
                     
+                    # Process weight conversion to grams if mapped
+                    if 'Variant Grams' in result_df.columns:
+                        result_df['Variant Grams'] = result_df['Variant Grams'].apply(convert_weight_to_grams)
+                        st.write(f"   ⚖️ Converted weights to grams for {supplier}")
+                    
                     # Add vendor
                     result_df['Vendor'] = supplier
                     
@@ -598,7 +623,7 @@ def process_files(uploaded_files, mappings):
                     
                     # Show sample data for debugging
                     st.write(f"📋 Sample data from {supplier}:")
-                    sample_cols = ['Title', 'Variant SKU', 'Vendor', 'Variant Price']
+                    sample_cols = ['Title', 'Variant SKU', 'Vendor', 'Variant Price', 'Variant Grams']
                     available_cols = [col for col in sample_cols if col in result_df.columns]
                     if available_cols:
                         st.dataframe(result_df[available_cols].head(2))
@@ -1036,6 +1061,9 @@ with tab3:
                             
                             # Field header with status
                             icon = "⭐" if is_important else "📋"
+                            # Add special icon for Variant Grams
+                            if field == "Variant Grams":
+                                icon = "⚖️"
                             header_html = f"""
                             <div style="display: flex; align-items: center; margin-bottom: 10px;">
                                 <span style="font-size: 1.1em; font-weight: bold;">{icon} {field}</span>
@@ -1043,6 +1071,22 @@ with tab3:
                             </div>
                             """
                             st.markdown(header_html, unsafe_allow_html=True)
+                            
+                            # Add helpful note for Variant Grams field
+                            if field == "Variant Grams":
+                                st.info("⚖️ **Auto-conversion:** All weights multiplied by 1000 (simple kg→g conversion)")
+                                with st.expander("💡 Weight Conversion Examples", expanded=False):
+                                    st.markdown("""
+                                    **Simple weight conversion (×1000):**
+                                    - `0.5` → `500` (grams)
+                                    - `1.2` → `1200` (grams)  
+                                    - `2.5` → `2500` (grams)
+                                    - `0.75` → `750` (grams)
+                                    - `3` → `3000` (grams)
+                                    
+                                    **Note:** All numeric values are multiplied by 1000 to convert kg to grams.
+                                    Non-numeric values will be set to 0.
+                                    """)
                             
                             # Radio button to choose mapping type
                             mapping_type = st.radio(
