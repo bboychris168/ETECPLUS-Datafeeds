@@ -443,6 +443,15 @@ def find_and_remove_duplicates(combined_df):
     duplicates_info = []
     images_preserved = 0
     
+    # Check what image fields are available
+    available_image_fields = ['Image Src', 'Variant Image', 'Image', 'Product Image', 'Image URL']
+    found_image_fields = [field for field in available_image_fields if field in combined_df.columns]
+    
+    if found_image_fields:
+        st.write(f"📷 Checking for images in fields: {', '.join(found_image_fields)}")
+    else:
+        st.write("⚠️ No standard image fields found in data")
+    
     if len(combined_df) > 0:
         # Group by Variant SKU to find duplicates
         grouped = combined_df.groupby('Variant SKU')
@@ -455,7 +464,7 @@ def find_and_remove_duplicates(combined_df):
                 removed_rows = group_sorted.iloc[1:]  # Higher cost (removed)
                 
                 # Check if we can preserve image URLs from duplicates
-                image_fields = ['Image Src', 'Variant Image']
+                image_fields = ['Image Src', 'Variant Image', 'Image', 'Product Image', 'Image URL']
                 
                 for image_field in image_fields:
                     if image_field in combined_df.columns:
@@ -463,7 +472,7 @@ def find_and_remove_duplicates(combined_df):
                         current_image = combined_df.loc[kept_idx, image_field]
                         
                         # If kept item has no image or empty image
-                        if pd.isna(current_image) or str(current_image).strip() == '':
+                        if pd.isna(current_image) or str(current_image).strip() == '' or str(current_image).lower() in ['none', 'null', 'n/a']:
                             # Look for image in duplicates that will be removed
                             for _, removed_row in removed_rows.iterrows():
                                 removed_image = removed_row.get(image_field, '')
@@ -471,14 +480,32 @@ def find_and_remove_duplicates(combined_df):
                                 # If duplicate has a valid image URL, preserve it
                                 if (pd.notna(removed_image) and 
                                     str(removed_image).strip() != '' and 
-                                    str(removed_image).startswith(('http', 'https'))):
+                                    str(removed_image).lower() not in ['none', 'null', 'n/a'] and
+                                    (str(removed_image).startswith(('http', 'https', 'www.', 'ftp://')) or 
+                                     '.' in str(removed_image))):  # Also accept relative URLs with extensions
                                     
                                     # Transfer image URL to kept item
                                     combined_df.loc[kept_idx, image_field] = removed_image
                                     images_preserved += 1
                                     
-                                    st.write(f"🖼️ Preserved {image_field} for SKU {sku} from {removed_row.get('Vendor', 'Unknown')} to {combined_df.loc[kept_idx, 'Vendor']}")
+                                    st.write(f"🖼️ Preserved {image_field} for SKU {sku}: '{removed_image}' from {removed_row.get('Vendor', 'Unknown')} → {combined_df.loc[kept_idx, 'Vendor']}")
                                     break  # Only take the first valid image found
+                        else:
+                            # If kept item already has an image, still check if duplicates have better/different images
+                            best_images = []
+                            for _, removed_row in removed_rows.iterrows():
+                                removed_image = removed_row.get(image_field, '')
+                                if (pd.notna(removed_image) and 
+                                    str(removed_image).strip() != '' and 
+                                    str(removed_image).lower() not in ['none', 'null', 'n/a'] and
+                                    str(removed_image) != str(current_image) and  # Different from current
+                                    (str(removed_image).startswith(('http', 'https', 'www.', 'ftp://')) or 
+                                     '.' in str(removed_image))):
+                                    best_images.append(removed_image)
+                            
+                            # If we found alternative images, log them for reference
+                            if best_images:
+                                st.write(f"ℹ️ SKU {sku} has {len(best_images)} alternative images available from duplicates (keeping current: '{current_image}')")
                 
                 # Record duplicate info
                 for _, removed_row in removed_rows.iterrows():
@@ -494,7 +521,10 @@ def find_and_remove_duplicates(combined_df):
     
     # Show image preservation summary
     if images_preserved > 0:
-        st.success(f"🖼️ Preserved {images_preserved} image URLs from duplicate items")
+        st.success(f"🖼️ Successfully preserved {images_preserved} image URLs from duplicate items to ensure products have images")
+        st.info("📋 Image preservation ensures that when duplicates are removed, any missing images are filled from the duplicate entries")
+    else:
+        st.info("📷 No image preservation needed - either no duplicates found or all kept items already had images")
     
     # Remove duplicates keeping lowest cost (with preserved images)
     final_df = combined_df.sort_values('Cost per item').drop_duplicates('Variant SKU', keep='first')

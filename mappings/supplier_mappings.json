@@ -21,7 +21,6 @@
     "Title": "Item Description",
     "Body (HTML)": "Item Description",
     "Vendor_custom": "Auscomp",
-    "Tags": "Minor Category 1,Minor Category 2,Vendor Name",
     "Variant SKU": "Manufacturer ID",
     "Variant Grams": "Net Weight",
     "Variant Inventory Tracker_custom": "shopify",
@@ -31,7 +30,8 @@
     "Google Shopping / MPN": "Manufacturer ID",
     "Google Shopping / Condition_custom": "new",
     "Variant Image": "Item URL",
-    "Cost per item": "Price"
+    "Cost per item": "Price",
+    "Tags": "Minor Category 1,Minor Category 2,Vendor Name"
   },
   "Leader": {
     "_file_keyword": "leader",
