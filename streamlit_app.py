@@ -7,6 +7,8 @@ import requests
 import io
 from datetime import datetime
 import time
+import logging
+from io import StringIO
 
 # Configure page
 st.set_page_config(
@@ -14,6 +16,44 @@ st.set_page_config(
     page_icon="📊",
     layout="wide"
 )
+
+# Setup logging
+def setup_logging():
+    """Setup logging to capture debug information to file"""
+    log_folder = "logs"
+    os.makedirs(log_folder, exist_ok=True)
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = os.path.join(log_folder, f"datafeed_processing_{timestamp}.log")
+    
+    # Configure logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_file, encoding='utf-8'),
+            logging.StreamHandler(StringIO())  # Capture to string for download
+        ]
+    )
+    
+    return log_file
+
+# Initialize logging
+if 'log_file' not in st.session_state:
+    st.session_state.log_file = setup_logging()
+
+def log_info(message):
+    """Log info message and optionally show in streamlit"""
+    logging.info(message)
+    # Optionally show brief message in streamlit
+    return message
+
+def log_write(message):
+    """Log message (equivalent to st.write but logged)"""
+    logging.info(message)
+    # Show in streamlit but also log
+    st.write(message)
+    return message
 
 # Enhanced CSS with mapping highlights
 st.markdown("""
@@ -412,17 +452,17 @@ def read_file(file):
 
 def find_and_remove_duplicates(combined_df):
     """Find duplicates and remove them, keeping lowest cost. Returns final df and duplicates info."""
-    st.write("🔍 **Duplicate Removal Debug:**")
+    log_write("🔍 **Duplicate Removal Debug:**")
     
     # Show initial vendor breakdown
     if 'Vendor' in combined_df.columns:
         initial_counts = combined_df['Vendor'].value_counts()
-        st.write(f"📊 Before duplicate removal:")
+        log_write(f"📊 Before duplicate removal:")
         for vendor, count in initial_counts.items():
-            st.write(f"   • {vendor}: {count} products")
+            log_info(f"   • {vendor}: {count} products")
     
     if 'Variant SKU' not in combined_df.columns or 'Cost per item' not in combined_df.columns:
-        st.write("⚠️ Missing required columns for duplicate removal")
+        log_write("⚠️ Missing required columns for duplicate removal")
         return combined_df, []
     
     # Convert cost to numeric - remove commas first
@@ -432,11 +472,11 @@ def find_and_remove_duplicates(combined_df):
     # Check for invalid costs by vendor
     invalid_costs = combined_df[combined_df['Cost per item'].isna()]
     if len(invalid_costs) > 0:
-        st.write(f"⚠️ Found {len(invalid_costs)} rows with invalid costs:")
+        log_write(f"⚠️ Found {len(invalid_costs)} rows with invalid costs:")
         if 'Vendor' in invalid_costs.columns:
             invalid_by_vendor = invalid_costs['Vendor'].value_counts()
             for vendor, count in invalid_by_vendor.items():
-                st.write(f"   • {vendor}: {count} invalid costs")
+                log_info(f"   • {vendor}: {count} invalid costs")
     
     # Remove rows with invalid costs
     before_dropna = len(combined_df)
@@ -444,14 +484,14 @@ def find_and_remove_duplicates(combined_df):
     after_dropna = len(combined_df)
     
     if before_dropna != after_dropna:
-        st.write(f"🗑️ Removed {before_dropna - after_dropna} rows with invalid costs")
+        log_write(f"🗑️ Removed {before_dropna - after_dropna} rows with invalid costs")
         
         # Show vendor breakdown after removing invalid costs
         if 'Vendor' in combined_df.columns:
             after_invalid_removal = combined_df['Vendor'].value_counts()
-            st.write(f"📊 After removing invalid costs:")
+            log_write(f"📊 After removing invalid costs:")
             for vendor, count in after_invalid_removal.items():
-                st.write(f"   • {vendor}: {count} products")
+                log_info(f"   • {vendor}: {count} products")
     
     # Find duplicates and preserve image URLs before removal
     duplicates_info = []
@@ -462,9 +502,9 @@ def find_and_remove_duplicates(combined_df):
     found_image_fields = [field for field in available_image_fields if field in combined_df.columns]
     
     if found_image_fields:
-        st.write(f"📷 Checking for images in fields: {', '.join(found_image_fields)}")
+        log_write(f"📷 Checking for images in fields: {', '.join(found_image_fields)}")
     else:
-        st.write("⚠️ No standard image fields found in data")
+        log_write("⚠️ No standard image fields found in data")
     
     if len(combined_df) > 0:
         # Group by Variant SKU to find duplicates
@@ -502,7 +542,7 @@ def find_and_remove_duplicates(combined_df):
                                     combined_df.loc[kept_idx, image_field] = removed_image
                                     images_preserved += 1
                                     
-                                    st.write(f"🖼️ Preserved {image_field} for SKU {sku}: '{removed_image}' from {removed_row.get('Vendor', 'Unknown')} → {combined_df.loc[kept_idx, 'Vendor']}")
+                                    log_info(f"🖼️ Preserved {image_field} for SKU {sku}: '{removed_image}' from {removed_row.get('Vendor', 'Unknown')} → {combined_df.loc[kept_idx, 'Vendor']}")
                                     break  # Only take the first valid image found
                         else:
                             # If kept item already has an image, still check if duplicates have better/different images
@@ -519,7 +559,7 @@ def find_and_remove_duplicates(combined_df):
                             
                             # If we found alternative images, log them for reference
                             if best_images:
-                                st.write(f"ℹ️ SKU {sku} has {len(best_images)} alternative images available from duplicates (keeping current: '{current_image}')")
+                                log_info(f"ℹ️ SKU {sku} has {len(best_images)} alternative images available from duplicates (keeping current: '{current_image}')")
                 
                 # Record duplicate info
                 for _, removed_row in removed_rows.iterrows():
@@ -536,9 +576,9 @@ def find_and_remove_duplicates(combined_df):
     # Show image preservation summary
     if images_preserved > 0:
         st.success(f"🖼️ Successfully preserved {images_preserved} image URLs from duplicate items to ensure products have images")
-        st.info("📋 Image preservation ensures that when duplicates are removed, any missing images are filled from the duplicate entries")
+        log_info("📋 Image preservation ensures that when duplicates are removed, any missing images are filled from the duplicate entries")
     else:
-        st.info("📷 No image preservation needed - either no duplicates found or all kept items already had images")
+        log_info("📷 No image preservation needed - either no duplicates found or all kept items already had images")
     
     # Remove duplicates keeping lowest cost (with preserved images)
     final_df = combined_df.sort_values('Cost per item').drop_duplicates('Variant SKU', keep='first')
@@ -546,9 +586,9 @@ def find_and_remove_duplicates(combined_df):
     # Show final vendor breakdown after duplicate removal
     if 'Vendor' in final_df.columns:
         final_counts = final_df['Vendor'].value_counts()
-        st.write(f"📊 After duplicate removal:")
+        log_write(f"📊 After duplicate removal:")
         for vendor, count in final_counts.items():
-            st.write(f"   • {vendor}: {count} products")
+            log_info(f"   • {vendor}: {count} products")
         
         # Show what was removed by vendor
         if len(duplicates_info) > 0:
@@ -557,9 +597,9 @@ def find_and_remove_duplicates(combined_df):
                 vendor = dup['Vendor (Removed)']
                 removed_by_vendor[vendor] = removed_by_vendor.get(vendor, 0) + 1
             
-            st.write(f"🗑️ Duplicates removed by vendor:")
+            log_write(f"🗑️ Duplicates removed by vendor:")
             for vendor, count in removed_by_vendor.items():
-                st.write(f"   • {vendor}: {count} products removed")
+                log_info(f"   • {vendor}: {count} products removed")
     
     return final_df, duplicates_info
 
@@ -569,18 +609,18 @@ def process_files(uploaded_files, mappings):
     
     for file in uploaded_files:
         supplier = detect_supplier(file.name)
-        st.write(f"🔍 Processing {file.name} - Detected supplier: {supplier}")  # Debug info
+        log_info(f"🔍 Processing {file.name} - Detected supplier: {supplier}")  # Debug info
         
         if supplier and supplier in mappings:
-            st.write(f"✅ Found mapping for {supplier}")  # Debug info
+            log_info(f"✅ Found mapping for {supplier}")  # Debug info
             
             df = read_file(file)
             if df is not None:
-                st.write(f"📊 Read {len(df)} rows from {file.name}")  # Debug info
-                st.write(f"📋 Available columns in {file.name}: {list(df.columns)}")  # Show actual columns
+                log_info(f"📊 Read {len(df)} rows from {file.name}")  # Debug info
+                log_info(f"📋 Available columns in {file.name}: {list(df.columns)}")  # Show actual columns
                 
                 mapping = mappings[supplier]
-                st.write(f"🔗 Applying {len(mapping)} mappings for {supplier}")
+                log_info(f"🔗 Applying {len(mapping)} mappings for {supplier}")
                 
                 # Apply mapping
                 mapped_data = {}
@@ -610,11 +650,11 @@ def process_files(uploaded_files, mappings):
                             tags = generate_shopify_tags(df, item_code_col, available_tag_cols)
                             mapped_data[shopify_field] = tags
                             successful_mappings += 1
-                            st.write(f"   🏷️ Generated tags from: {', '.join(available_tag_cols)}")
+                            log_info(f"   🏷️ Generated tags from: {', '.join(available_tag_cols)}")
                         else:
                             # No valid tag columns found
                             mapped_data[shopify_field] = [""] * len(df)
-                            st.write(f"   ⚠️ Tag columns not found: {', '.join(tag_columns)}")
+                            log_info(f"   ⚠️ Tag columns not found: {', '.join(tag_columns)}")
                     elif f"{shopify_field}_custom" in mapping and mapping[f"{shopify_field}_custom"]:
                         # Use custom text value - FIX: Create list to match DataFrame rows
                         custom_value = mapping[f"{shopify_field}_custom"]
@@ -626,15 +666,15 @@ def process_files(uploaded_files, mappings):
                         if supplier_field and supplier_field not in df.columns:
                             missing_columns.append(f"{shopify_field} → {supplier_field}")
                 
-                st.write(f"   ✅ Column mappings: {successful_mappings}")
-                st.write(f"   📝 Custom values: {custom_mappings}")
+                log_info(f"   ✅ Column mappings: {successful_mappings}")
+                log_info(f"   📝 Custom values: {custom_mappings}")
                 if missing_columns:
-                    st.write(f"   ⚠️ Missing columns: {', '.join(missing_columns)}")
+                    log_info(f"   ⚠️ Missing columns: {', '.join(missing_columns)}")
                 
                 # Create DataFrame
                 if mapped_data:
                     result_df = pd.DataFrame(mapped_data)
-                    st.write(f"📊 Created DataFrame: {len(result_df)} rows × {len(result_df.columns)} columns")
+                    log_info(f"📊 Created DataFrame: {len(result_df)} rows × {len(result_df.columns)} columns")
                     
                     # Process quantity if mapped
                     if 'Variant Inventory Qty' in result_df.columns:
@@ -643,7 +683,7 @@ def process_files(uploaded_files, mappings):
                     # Process weight conversion to grams if mapped
                     if 'Variant Grams' in result_df.columns:
                         result_df['Variant Grams'] = result_df['Variant Grams'].apply(convert_weight_to_grams)
-                        st.write(f"   ⚖️ Converted weights to grams for {supplier}")
+                        log_info(f"   ⚖️ Converted weights to grams for {supplier}")
                     
                     # Process title length limitation if mapped
                     if 'Title' in result_df.columns:
@@ -651,7 +691,7 @@ def process_files(uploaded_files, mappings):
                         long_titles = original_titles[original_titles.str.len() > 255]
                         if len(long_titles) > 0:
                             result_df['Title'] = result_df['Title'].apply(truncate_title)
-                            st.write(f"   ✂️ Truncated {len(long_titles)} long titles (>255 chars) for {supplier}")
+                            log_info(f"   ✂️ Truncated {len(long_titles)} long titles (>255 chars) for {supplier}")
                     
                     # Add vendor
                     result_df['Vendor'] = supplier
@@ -673,30 +713,34 @@ def process_files(uploaded_files, mappings):
                     
 
                     
-                    # Show sample data for debugging
-                    st.write(f"📋 Sample data from {supplier}:")
+                    # Show sample data for debugging (but log the info)
+                    log_info(f"📋 Sample data from {supplier}:")
                     sample_cols = ['Title', 'Variant SKU', 'Vendor', 'Variant Price', 'Variant Grams']
                     available_cols = [col for col in sample_cols if col in result_df.columns]
                     if available_cols:
-                        st.dataframe(result_df[available_cols].head(2))
+                        sample_data = result_df[available_cols].head(2)
+                        for idx, row in sample_data.iterrows():
+                            log_info(f"   Sample {idx+1}: {dict(row)}")
                     
                     all_data.append(result_df)
                     st.success(f"✅ {file.name}: {len(result_df)} products processed from {supplier}")
+                    log_info(f"Successfully processed {len(result_df)} products from {supplier}")
                 else:
                     st.error(f"❌ {file.name}: No valid mappings found for {supplier}")
-                    st.write(f"Mapped data keys: {list(mapped_data.keys()) if mapped_data else 'None'}")
+                    log_info(f"No valid mappings found for {supplier}. Mapped data keys: {list(mapped_data.keys()) if mapped_data else 'None'}")
             else:
                 st.error(f"❌ {file.name}: Could not read file")
         else:
             if supplier:
                 st.warning(f"⚠️ {file.name}: Detected supplier '{supplier}' but no mapping found")
-                st.write(f"Available mappings: {list(mappings.keys())}")
+                log_info(f"Detected supplier '{supplier}' but no mapping found. Available mappings: {list(mappings.keys())}")
             else:
                 st.warning(f"⚠️ {file.name}: Could not detect supplier from filename")
-                st.write("Available suppliers with keywords:")
+                log_info("Could not detect supplier from filename")
+                log_info("Available suppliers with keywords:")
                 for supp, map_data in mappings.items():
                     keyword = map_data.get('_file_keyword', 'No keyword')
-                    st.write(f"• {supp}: '{keyword}'")
+                    log_info(f"• {supp}: '{keyword}'")
     
     return all_data
 
@@ -1465,15 +1509,33 @@ with tab4:
                 display_df = normalize_dataframe_types(final_df.head(10))
                 st.dataframe(display_df)
                 
-                # Download
-                csv_data = final_df.to_csv(index=False)
-                st.download_button(
-                    "💾 Download Shopify CSV",
-                    csv_data,
-                    "shopify_products.csv",
-                    "text/csv",
-                    type="primary"
-                )
+                # Download options
+                col_csv, col_log = st.columns(2)
+                
+                with col_csv:
+                    # Create UTF-8 encoded CSV
+                    csv_data = final_df.to_csv(index=False, encoding='utf-8')
+                    st.download_button(
+                        "💾 Download Shopify CSV (UTF-8)",
+                        csv_data.encode('utf-8'),
+                        "shopify_products.csv",
+                        "text/csv; charset=utf-8",
+                        type="primary"
+                    )
+                
+                with col_log:
+                    # Download log file
+                    if os.path.exists(st.session_state.log_file):
+                        with open(st.session_state.log_file, 'r', encoding='utf-8') as f:
+                            log_data = f.read()
+                        
+                        st.download_button(
+                            "📋 Download Processing Log",
+                            log_data,
+                            f"processing_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                            "text/plain; charset=utf-8",
+                            type="secondary"
+                        )
                 
                 # Store in session for reference
                 st.session_state.processed_data = final_df
@@ -1481,6 +1543,13 @@ with tab4:
 
 # Show current mappings in sidebar
 st.sidebar.header("Current Mappings")
+
+# Show log file info
+if 'log_file' in st.session_state and os.path.exists(st.session_state.log_file):
+    file_size = os.path.getsize(st.session_state.log_file)
+    st.sidebar.info(f"📋 Processing log: {file_size} bytes")
+    st.sidebar.caption("Log will be available for download after processing")
+
 if st.session_state.supplier_mappings:
     for supplier, mapping in st.session_state.supplier_mappings.items():
         with st.sidebar.expander(f"📋 {supplier}"):
