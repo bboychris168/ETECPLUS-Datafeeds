@@ -306,17 +306,27 @@ def convert_weight_to_grams(weight_str):
         return 0
 
 def truncate_title(title_str, max_length=255):
-    """Truncate title to maximum character length for Shopify compatibility"""
+    """Truncate title to maximum character length for Shopify compatibility - STRICT 255 limit"""
     if pd.isna(title_str) or title_str == '':
         return ''
     
     title_str = str(title_str).strip()
     
+    # If already within limit, return as-is
     if len(title_str) <= max_length:
         return title_str
     
-    # Truncate and add ellipsis, ensuring we don't exceed max_length
-    truncated = title_str[:max_length-3] + '...'
+    # Strict truncation: cut to max_length-3, add '...', then double-check
+    if max_length >= 3:
+        truncated = title_str[:max_length-3] + '...'
+    else:
+        # If max_length is less than 3, just truncate to max_length
+        truncated = title_str[:max_length]
+    
+    # Final safety check - absolutely ensure we don't exceed max_length
+    if len(truncated) > max_length:
+        truncated = truncated[:max_length]
+    
     return truncated
 
 def normalize_dataframe_types(df):
@@ -692,6 +702,16 @@ def process_files(uploaded_files, mappings):
                         if len(long_titles) > 0:
                             result_df['Title'] = result_df['Title'].apply(truncate_title)
                             log_info(f"   ✂️ Truncated {len(long_titles)} long titles (>255 chars) for {supplier}")
+                            
+                            # Double-check: verify no titles exceed 255 characters after truncation
+                            final_titles = result_df['Title'].astype(str)
+                            still_long = final_titles[final_titles.str.len() > 255]
+                            if len(still_long) > 0:
+                                # Emergency truncation - force to exactly 255 chars
+                                result_df.loc[final_titles.str.len() > 255, 'Title'] = final_titles[final_titles.str.len() > 255].str[:255]
+                                log_info(f"   🚨 Emergency truncated {len(still_long)} titles that still exceeded 255 chars")
+                            else:
+                                log_info(f"   ✅ All titles verified to be ≤255 characters for {supplier}")
                     
                     # Add vendor
                     result_df['Vendor'] = supplier
