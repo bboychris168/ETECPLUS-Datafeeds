@@ -10,7 +10,6 @@ import time
 import logging
 from io import StringIO
 
-"This is a test for the new branch"
 
 # Configure page
 st.set_page_config(
