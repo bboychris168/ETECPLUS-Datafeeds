@@ -265,6 +265,20 @@ def convert_weight_to_grams(weight_str):
     except (ValueError, TypeError):
         return 0
 
+def truncate_title(title_str, max_length=255):
+    """Truncate title to maximum character length for Shopify compatibility"""
+    if pd.isna(title_str) or title_str == '':
+        return ''
+    
+    title_str = str(title_str).strip()
+    
+    if len(title_str) <= max_length:
+        return title_str
+    
+    # Truncate and add ellipsis, ensuring we don't exceed max_length
+    truncated = title_str[:max_length-3] + '...'
+    return truncated
+
 def normalize_dataframe_types(df):
     """Normalize DataFrame column types to prevent concatenation errors"""
     df_normalized = df.copy()
@@ -630,6 +644,14 @@ def process_files(uploaded_files, mappings):
                     if 'Variant Grams' in result_df.columns:
                         result_df['Variant Grams'] = result_df['Variant Grams'].apply(convert_weight_to_grams)
                         st.write(f"   ⚖️ Converted weights to grams for {supplier}")
+                    
+                    # Process title length limitation if mapped
+                    if 'Title' in result_df.columns:
+                        original_titles = result_df['Title'].astype(str)
+                        long_titles = original_titles[original_titles.str.len() > 255]
+                        if len(long_titles) > 0:
+                            result_df['Title'] = result_df['Title'].apply(truncate_title)
+                            st.write(f"   ✂️ Truncated {len(long_titles)} long titles (>255 chars) for {supplier}")
                     
                     # Add vendor
                     result_df['Vendor'] = supplier
@@ -1096,6 +1118,9 @@ with tab3:
                             # Add special icon for Variant Grams
                             if field == "Variant Grams":
                                 icon = "⚖️"
+                            # Add special icon for Title
+                            elif field == "Title":
+                                icon = "📝"
                             header_html = f"""
                             <div style="display: flex; align-items: center; margin-bottom: 10px;">
                                 <span style="font-size: 1.1em; font-weight: bold;">{icon} {field}</span>
@@ -1118,6 +1143,22 @@ with tab3:
                                     
                                     **Note:** All numeric values are multiplied by 1000 to convert kg to grams.
                                     Non-numeric values will be set to 0.
+                                    """)
+                            
+                            # Add helpful note for Title field
+                            elif field == "Title":
+                                st.info("📝 **Auto-truncation:** Titles longer than 255 characters will be automatically truncated with '...'")
+                                with st.expander("💡 Title Length Examples", expanded=False):
+                                    st.markdown("""
+                                    **Title character limit (255 max):**
+                                    - Titles ≤ 255 chars → Keep as is
+                                    - Titles > 255 chars → Truncate to 252 chars + "..."
+                                    
+                                    **Example:**
+                                    - Original: `"Very long product title that exceeds 255 characters..."`
+                                    - Result: `"Very long product title that exceeds 255 characte..."`
+                                    
+                                    **Note:** This prevents Shopify import errors due to title length limits.
                                     """)
                             
                             # Radio button to choose mapping type
