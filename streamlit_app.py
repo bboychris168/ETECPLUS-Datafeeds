@@ -1461,6 +1461,49 @@ with tab4:
                 
                 # Generate Handle from Title if not mapped
                 if 'Handle' not in final_df.columns or final_df['Handle'].isna().all():
+                    # First, create a function to handle duplicate titles with cost-based numbering
+                    def create_unique_handles_and_titles(df):
+                        """Create unique handles and titles by adding numbered suffixes for duplicates based on cost ranking"""
+                        if df.empty:
+                            return df
+                        
+                        # Make a copy to work with
+                        df_copy = df.copy()
+                        
+                        # Convert cost to numeric for sorting
+                        if 'Cost per item' in df_copy.columns:
+                            df_copy['_cost_numeric'] = pd.to_numeric(df_copy['Cost per item'].astype(str).str.replace(',', ''), errors='coerce')
+                        else:
+                            df_copy['_cost_numeric'] = 0
+                        
+                        # Group by title to find duplicates
+                        title_groups = df_copy.groupby('Title')
+                        modified_titles = 0
+                        
+                        for title, group in title_groups:
+                            if len(group) > 1:  # We have duplicates
+                                # Sort by cost (lowest first)
+                                group_sorted = group.sort_values('_cost_numeric')
+                                
+                                # Add numbered suffixes starting from the second item
+                                for i, (idx, row) in enumerate(group_sorted.iterrows()):
+                                    if i > 0:  # First item keeps original title
+                                        new_title = f"{title} ({i+1})"
+                                        df_copy.loc[idx, 'Title'] = new_title
+                                        modified_titles += 1
+                        
+                        # Clean up temporary column
+                        df_copy = df_copy.drop(columns=['_cost_numeric'])
+                        
+                        if modified_titles > 0:
+                            st.info(f"🏷️ Added numbered suffixes to {modified_titles} duplicate titles (ranked by cost)")
+                        
+                        return df_copy
+                    
+                    # Apply the function to create unique titles
+                    final_df = create_unique_handles_and_titles(final_df)
+                    
+                    # Now generate handles from the unique titles
                     final_df['Handle'] = final_df['Title'].str.lower().str.replace(' ', '-').str.replace('[^a-z0-9-]', '', regex=True)
                 
                 st.success(f"🎉 {len(final_df)} unique products ready!")
