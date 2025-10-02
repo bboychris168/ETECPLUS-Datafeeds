@@ -751,12 +751,12 @@ def process_files(uploaded_files, mappings):
                     # Add default values for required fields
                     result_df['Published'] = 'true'
                     result_df['Option1 Name'] = 'Title'
-                    # Create unique Option1 Value to prevent Shopify variant conflicts
-                    # Use the product title or a unique identifier instead of generic 'Default Title'
-                    if 'Title' in result_df.columns:
-                        result_df['Option1 Value'] = result_df['Title'].astype(str)
+                    # Use Variant SKU as Option1 Value for guaranteed uniqueness and professional appearance
+                    # This prevents "Default Title already exists" errors even when titles are identical
+                    if 'Variant SKU' in result_df.columns:
+                        result_df['Option1 Value'] = result_df['Variant SKU'].astype(str)
                     else:
-                        result_df['Option1 Value'] = 'Default Title'
+                        result_df['Option1 Value'] = ''  # Fallback to empty if no SKU column
                     result_df['Variant Inventory Tracker'] = 'shopify'
                     result_df['Variant Inventory Policy'] = 'deny'
                     result_df['Variant Fulfillment Service'] = 'manual'
