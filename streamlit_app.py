@@ -9,6 +9,7 @@ from datetime import datetime
 import time
 import logging
 from io import StringIO
+from urllib.parse import quote
 
 # Configure page
 st.set_page_config(
@@ -328,6 +329,34 @@ def truncate_title(title_str, max_length=255):
         truncated = truncated[:max_length]
     
     return truncated
+
+def fix_image_url_encoding(url_str):
+    """Fix URL encoding issues - encode spaces and other special characters"""
+    if pd.isna(url_str) or str(url_str).strip() == '':
+        return url_str
+    
+    url_str = str(url_str).strip()
+    
+    # Check if it's a valid URL
+    if not (url_str.startswith(('http://', 'https://')) or url_str.startswith('www.') or '.' in url_str):
+        return url_str
+    
+    # Split URL into base and path parts
+    if '://' in url_str:
+        scheme_and_domain, path_part = url_str.split('://', 1)
+        if '/' in path_part:
+            domain, path = path_part.split('/', 1)
+            # Only encode the path part, not the domain
+            encoded_path = quote(path, safe='/?&=')
+            fixed_url = f"{scheme_and_domain}://{domain}/{encoded_path}"
+        else:
+            # No path, just domain
+            fixed_url = url_str
+    else:
+        # Relative URL or unusual format, encode the whole thing carefully
+        fixed_url = quote(url_str, safe=':/?#[]@!$&\'()*+,;=')
+    
+    return fixed_url
 
 def normalize_dataframe_types(df):
     """Normalize DataFrame column types to prevent concatenation errors"""
@@ -722,7 +751,12 @@ def process_files(uploaded_files, mappings):
                     # Add default values for required fields
                     result_df['Published'] = 'true'
                     result_df['Option1 Name'] = 'Title'
-                    result_df['Option1 Value'] = 'Default Title'
+                    # Create unique Option1 Value to prevent Shopify variant conflicts
+                    # Use the product title or a unique identifier instead of generic 'Default Title'
+                    if 'Title' in result_df.columns:
+                        result_df['Option1 Value'] = result_df['Title'].astype(str)
+                    else:
+                        result_df['Option1 Value'] = 'Default Title'
                     result_df['Variant Inventory Tracker'] = 'shopify'
                     result_df['Variant Inventory Policy'] = 'deny'
                     result_df['Variant Fulfillment Service'] = 'manual'
@@ -1505,6 +1539,24 @@ with tab4:
                     
                     # Now generate handles from the unique titles
                     final_df['Handle'] = final_df['Title'].str.lower().str.replace(' ', '-').str.replace('[^a-z0-9-]', '', regex=True)
+                
+                # Fix image URL encoding issues
+                image_fields = ['Image Src', 'Variant Image', 'Image', 'Product Image', 'Image URL']
+                fixed_urls = 0
+                for image_field in image_fields:
+                    if image_field in final_df.columns:
+                        # Apply URL encoding fix to all image URLs
+                        original_urls = final_df[image_field].copy()
+                        final_df[image_field] = final_df[image_field].apply(fix_image_url_encoding)
+                        
+                        # Count how many URLs were fixed
+                        url_changes = (original_urls != final_df[image_field]).sum()
+                        if url_changes > 0:
+                            fixed_urls += url_changes
+                            st.info(f"🔗 Fixed {url_changes} URLs with encoding issues in {image_field} field")
+                
+                if fixed_urls > 0:
+                    st.success(f"✅ Fixed {fixed_urls} image URLs with encoding issues (spaces converted to %20, etc.)")
                 
                 st.success(f"🎉 {len(final_df)} unique products ready!")
                 
